@@ -1,6 +1,7 @@
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
 from tradingagents.agents.utils.agent_utils import (
+    get_crypto_derivatives,
     get_indicators,
     get_instrument_context_from_state,
     get_language_instruction,
@@ -9,17 +10,36 @@ from tradingagents.agents.utils.agent_utils import (
 )
 
 
+def _tools_for_asset_type(asset_type: str) -> list:
+    """Return only the market tools the model is allowed to see for an asset."""
+    tools = [
+        get_stock_data,
+        get_indicators,
+        get_verified_market_snapshot,
+    ]
+    if asset_type == "crypto":
+        tools.append(get_crypto_derivatives)
+    return tools
+
+
 def create_market_analyst(llm):
 
     def market_analyst_node(state):
         current_date = state["trade_date"]
         instrument_context = get_instrument_context_from_state(state)
 
-        tools = [
-            get_stock_data,
-            get_indicators,
-            get_verified_market_snapshot,
-        ]
+        tools = _tools_for_asset_type(state.get("asset_type", "stock"))
+
+        crypto_instruction = ""
+        if state.get("asset_type") == "crypto":
+            crypto_instruction = """
+
+This is a cryptocurrency analysis. After retrieving the canonical OHLCV and
+indicators, call get_crypto_derivatives once for the exact ticker and analysis
+date. Treat funding, open interest, long/short positioning, and taker flow as
+supplemental derivatives-market evidence. Explicitly distinguish futures
+positioning from spot demand, and do not let missing Binance enrichment weaken
+or override verified OHLCV evidence."""
 
         system_message = (
             """You are a trading assistant tasked with analyzing financial markets. Your role is to select the **most relevant indicators** for a given market condition or trading strategy from the following list. The goal is to choose up to **8 indicators** that provide complementary insights without redundancy. Categories and each category's indicators are:
@@ -52,6 +72,7 @@ Before writing the final report, call get_verified_market_snapshot for this tick
 
 Write a very detailed and nuanced report of the trends you observe. Provide specific, actionable insights with supporting evidence to help traders make informed decisions."""
             + """ Make sure to append a Markdown table at the end of the report to organize key points in the report, organized and easy to read."""
+            + crypto_instruction
             + get_language_instruction()
         )
 

@@ -153,6 +153,8 @@ DEFAULT_CONFIG = _apply_env_overrides({
         "news_data": "yfinance",             # Options: alpha_vantage, yfinance
         "macro_data": "fred",                # Options: fred (needs FRED_API_KEY)
         "prediction_markets": "polymarket",  # Options: polymarket (keyless)
+        "crypto_derivatives": "binance",     # Options: binance (keyless)
+        "crypto_sentiment": "alternative_me",  # Options: alternative_me (keyless)
     },
     # Tool-level configuration (takes precedence over category-level)
     "tool_vendors": {

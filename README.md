@@ -235,6 +235,26 @@ print(decision)
 
 See `tradingagents/default_config.py` for all configuration options.
 
+### Cryptocurrency-native data
+
+Crypto runs keep Yahoo Finance as the verified OHLCV/technical-indicator source,
+then add two keyless, optional enrichment sources:
+
+- Binance USD-M futures: funding-rate history, open interest, global long/short
+  account ratio, and taker buy/sell flow for supported USDT perpetuals.
+- Alternative.me: the historical Crypto Fear & Greed Index, labeled as a
+  Bitcoin-centric broad-market proxy rather than coin-specific sentiment.
+
+Both sources are capped at the requested analysis date. Binance retains some
+positioning series for only a limited recent window, so an older analysis may
+show funding data while marking open-interest or ratio history unavailable. A
+network error, regional Binance restriction, rate limit, or unsupported future
+degrades these optional sections without aborting the main analysis. Configure
+the vendors through `data_vendors.crypto_derivatives` and
+`data_vendors.crypto_sentiment`; no API keys are required by default.
+The CLI detects crypto pairs automatically; programmatic callers should pass
+`asset_type="crypto"` to `propagate()`.
+
 ## Persistence and Recovery
 
 TradingAgents persists two kinds of state across runs.
@@ -269,7 +289,7 @@ TradingAgents is LLM-driven, so two runs of the same ticker and date can differ.
 
 Language model sampling is non-deterministic. Even at a fixed temperature, providers do not guarantee byte-identical output across calls, and reasoning models (the default GPT-5.x family, and any thinking-mode model) vary the most because their internal reasoning is itself sampled.
 
-Live data moves. News, StockTwits, Reddit, and optional X Search return different content as time passes, so a run today sees different inputs than a run last week even for the same historical trade date. Pin the analysis date to hold the price and indicator window fixed, but the social and news sources still reflect "now".
+Live data moves. News, StockTwits, Reddit, and optional X Search return different content as time passes, so a run today sees different inputs than a run last week even for the same historical trade date. Pin the analysis date to hold the price, indicator, Binance derivatives, and Crypto Fear & Greed windows fixed, but the social and news sources still reflect "now".
 
 To reduce variation you can lower the sampling temperature. Set `temperature` in your config (or `TRADINGAGENTS_TEMPERATURE` in `.env`); lower values make models that honor it more repeatable. The current curated models are reasoning-first and largely ignore temperature, so for tighter reproducibility use a non-reasoning model, which you can set explicitly via the Custom model ID option.
 

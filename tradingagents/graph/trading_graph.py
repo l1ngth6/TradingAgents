@@ -15,6 +15,7 @@ from tradingagents.agents.utils.agent_utils import (
     build_instrument_context,
     get_balance_sheet,
     get_cashflow,
+    get_crypto_derivatives,
     get_fundamentals,
     get_global_news,
     get_income_statement,
@@ -201,6 +202,9 @@ class TradingAgentsGraph:
                     # LLM and required by its prompt; must be executable here or
                     # the call fails and the model reports it "unavailable").
                     get_verified_market_snapshot,
+                    # Crypto-only, keyless enrichment. The market prompt calls
+                    # it only when state.asset_type == "crypto".
+                    get_crypto_derivatives,
                 ]
             ),
             "social": ToolNode(

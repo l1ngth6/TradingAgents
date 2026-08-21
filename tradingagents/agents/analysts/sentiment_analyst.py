@@ -34,6 +34,7 @@ from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
 from tradingagents.agents.schemas import SentimentReport, render_sentiment_report
 from tradingagents.agents.utils.agent_utils import (
+    get_crypto_fear_greed,
     get_instrument_context_from_state,
     get_language_instruction,
     get_news,
@@ -76,6 +77,12 @@ def create_sentiment_analyst(llm):
         stocktwits_block = fetch_stocktwits_messages(ticker, limit=30)
         reddit_block = fetch_reddit_posts(ticker)
         x_search_block = fetch_x_sentiment(ticker, start_date, end_date)
+        if state.get("asset_type") == "crypto":
+            crypto_fear_greed_block = get_crypto_fear_greed.func(
+                ticker, end_date, 7
+            )
+        else:
+            crypto_fear_greed_block = "<not applicable: the target is not a crypto asset>"
 
         system_message = _build_system_message(
             ticker=ticker,
@@ -85,6 +92,7 @@ def create_sentiment_analyst(llm):
             stocktwits_block=stocktwits_block,
             reddit_block=reddit_block,
             x_search_block=x_search_block,
+            crypto_fear_greed_block=crypto_fear_greed_block,
         )
 
         prompt = ChatPromptTemplate.from_messages(
@@ -139,6 +147,7 @@ def _build_system_message(
     stocktwits_block: str,
     reddit_block: str,
     x_search_block: str,
+    crypto_fear_greed_block: str,
 ) -> str:
     """Assemble the sentiment-analyst system message with structured data blocks."""
     return f"""You are a financial market sentiment analyst. Your task is to produce a comprehensive sentiment report for {ticker} covering the period from {start_date} to {end_date}, drawing on established data sources and an optional supplemental X reference that have already been collected for you.
@@ -173,6 +182,14 @@ Supplemental, fast-moving reference signal. This source is intentionally lower-w
 {x_search_block}
 <end_of_x_search>
 
+### Crypto Fear & Greed Index — Alternative.me (crypto only)
+Broad, Bitcoin-centric crypto-market sentiment. This is not coin-specific and
+must not override direct evidence for the target asset.
+
+<start_of_crypto_fear_greed>
+{crypto_fear_greed_block}
+<end_of_crypto_fear_greed>
+
 ## How to analyze this data (best practices)
 
 1. **Read the StockTwits Bullish/Bearish ratio as a leading retail-sentiment signal.** A 70/30 bullish/bearish split is moderately bullish; ≥90/10 may indicate over-extension and contrarian risk; 50/50 is uncertainty. Sample size matters — base rates on the actual message count, not percentages alone.
@@ -192,6 +209,10 @@ Supplemental, fast-moving reference signal. This source is intentionally lower-w
 8. **Identify catalysts and risks** that emerge across sources — news of upcoming earnings, product launches, competitive threats, macro headlines, etc.
 
 9. **Past sentiment is not predictive.** Frame your conclusions as signal for the trader to weigh alongside fundamentals and technicals, not as a price call.
+
+10. **For crypto, use Fear & Greed only as a broad regime proxy.** It is
+Bitcoin-centric, so do not describe it as direct sentiment for an altcoin. A
+coin-specific conclusion still requires corroboration from news or social data.
 
 ## Output fields
 

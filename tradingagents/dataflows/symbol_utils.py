@@ -43,7 +43,12 @@ _FOREX_CURRENCIES = frozenset(
 
 # Crypto bases that brokers quote against USD without a separator.
 _CRYPTO_BASES = frozenset(
-    {"BTC", "ETH", "SOL", "XRP", "ADA", "DOGE", "LTC", "BCH", "DOT", "AVAX", "LINK"}
+    {
+        "AAVE", "ADA", "APT", "ARB", "ATOM", "AVAX", "BCH", "BNB", "BTC",
+        "DOGE", "DOT", "ETC", "ETH", "FIL", "HBAR", "ICP", "LINK", "LTC",
+        "MKR", "NEAR", "OP", "PEPE", "SHIB", "SOL", "SUI", "TON", "TRX",
+        "UNI", "XLM", "XRP",
+    }
 )
 
 # Explicit aliases for instruments whose broker symbol does not map to a

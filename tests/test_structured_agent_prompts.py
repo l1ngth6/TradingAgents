@@ -133,6 +133,40 @@ def test_sentiment_prompt_states_constraint(monkeypatch):
 
 
 @pytest.mark.unit
+def test_crypto_sentiment_prompt_includes_fear_greed(monkeypatch):
+    from tradingagents.agents.schemas import SentimentBand, SentimentReport
+
+    monkeypatch.setattr(sentiment, "fetch_stocktwits_messages", lambda *a, **k: "st")
+    monkeypatch.setattr(sentiment, "fetch_reddit_posts", lambda *a, **k: "rd")
+    monkeypatch.setattr(sentiment, "fetch_x_sentiment", lambda *a, **k: "x")
+    monkeypatch.setattr(sentiment.get_news, "func", lambda *a, **k: "news", raising=False)
+    monkeypatch.setattr(
+        sentiment.get_crypto_fear_greed,
+        "func",
+        lambda *a, **k: "FNG historical evidence",
+        raising=False,
+    )
+
+    captured = {}
+    llm = _capturing_llm(captured, SentimentReport(
+        overall_band=SentimentBand.NEUTRAL,
+        overall_score=5.0,
+        confidence="medium",
+        narrative="n",
+    ))
+    sentiment.create_sentiment_analyst(llm)({
+        "company_of_interest": "BTC-USD",
+        "trade_date": "2026-01-15",
+        "asset_type": "crypto",
+        "messages": [],
+    })
+    text = _prompt_text(captured["prompt"])
+    assert "FNG historical evidence" in text
+    assert "Bitcoin-centric" in text
+    assert "not coin-specific" in text
+
+
+@pytest.mark.unit
 def test_tool_using_analysts_keep_their_date_guidance():
     # The analysts that really do call tools keep the wording that anchors their
     # tool date ranges (#836) — this fix is scoped to no-tool agents.

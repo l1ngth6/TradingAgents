@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Breaking changes within the 0.x line are called out explicitly.
 
+## [Unreleased]
+
+### Added
+
+- **Crypto-native optional data sources.** Crypto market analysis can now add
+  historical-date-safe Binance USD-M funding, open-interest, positioning, and
+  taker-flow data; the Sentiment Analyst also receives Alternative.me's
+  historical Fear & Greed Index as a Bitcoin-centric broad-market proxy. Both
+  keyless vendors degrade cleanly when unavailable and never replace verified
+  OHLCV data. Crypto-only tools are bound to the model only for crypto runs, so
+  equity and other non-crypto analyses cannot invoke them.
+
 ## [0.3.1] — 2026-07-05
 
 Correctness and stability patch: data look-ahead, graph-router crash-safety,

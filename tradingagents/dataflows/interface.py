@@ -11,6 +11,8 @@ from .alpha_vantage import (
     get_news as get_alpha_vantage_news,
     get_stock as get_alpha_vantage_stock,
 )
+from .alternative_me import get_crypto_fear_greed as get_alternative_me_fear_greed
+from .binance_crypto import get_crypto_derivatives as get_binance_crypto_derivatives
 from .config import get_config
 from .errors import (
     NoMarketDataError,
@@ -74,6 +76,18 @@ TOOLS_CATEGORIES = {
         "tools": [
             "get_prediction_markets",
         ]
+    },
+    "crypto_derivatives": {
+        "description": "Crypto-native derivatives positioning and funding",
+        "tools": [
+            "get_crypto_derivatives",
+        ]
+    },
+    "crypto_sentiment": {
+        "description": "Broad cryptocurrency market sentiment indices",
+        "tools": [
+            "get_crypto_fear_greed",
+        ]
     }
 }
 
@@ -81,6 +95,8 @@ VENDOR_LIST = [
     "yfinance",
     "fred",
     "polymarket",
+    "binance",
+    "alternative_me",
     "alpha_vantage",
 ]
 
@@ -89,7 +105,12 @@ VENDOR_LIST = [
 # sentinel instead of aborting the run (a bad LLM-supplied indicator, a missing
 # key, or a network blip should not crash an analysis over flavour data). Core
 # categories (prices, fundamentals, news) still raise so a broken primary is loud.
-OPTIONAL_CATEGORIES = {"macro_data", "prediction_markets"}
+OPTIONAL_CATEGORIES = {
+    "macro_data",
+    "prediction_markets",
+    "crypto_derivatives",
+    "crypto_sentiment",
+}
 
 # Mapping of methods to their vendor-specific implementations
 VENDOR_METHODS = {
@@ -140,6 +161,13 @@ VENDOR_METHODS = {
     # prediction_markets
     "get_prediction_markets": {
         "polymarket": get_polymarket_prediction_markets,
+    },
+    # crypto-native enrichment
+    "get_crypto_derivatives": {
+        "binance": get_binance_crypto_derivatives,
+    },
+    "get_crypto_fear_greed": {
+        "alternative_me": get_alternative_me_fear_greed,
     },
 }
 
