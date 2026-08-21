@@ -155,6 +155,8 @@ For local models, configure Ollama with `llm_provider: "ollama"`. The default en
 
 For an OpenAI-compatible server that implements the Responses API, use `llm_provider: "openai_compatible"` and set the endpoint via `backend_url` (or `TRADINGAGENTS_LLM_BACKEND_URL`), e.g. `http://192.168.2.221:8080/v1`. Both the deep-thinking and quick-thinking models use that same base URL and call `/v1/responses`; the client does not fall back to `/v1/chat/completions`. The model IDs are whatever your server exposes. No key is needed for keyless local servers; set `OPENAI_COMPATIBLE_API_KEY` when the endpoint requires one. `TRADINGAGENTS_OPENAI_REASONING_EFFORT` is optional and is forwarded for any model ID, including `gpt-5.6-sol` and `deepseek-v4-*`.
 
+Per-agent model overrides are optional and disabled by default. Set `TRADINGAGENTS_AGENT_LLM_OVERRIDES_ENABLED=true`, then provide a JSON object in `TRADINGAGENTS_AGENT_LLM_OVERRIDES`; see `.env.example` for every supported role and a complete example. Each configured role may override `model`, generic `thinking_level`, or both. Missing fields inherit the role's existing Quick/Deep defaults, while `thinking_level: null` uses the provider default. All role overrides continue to use the globally selected provider, credentials, backend URL, retry budget, temperature, and callbacks.
+
 Alternatively, copy `.env.example` to `.env` and fill in your keys:
 ```bash
 cp .env.example .env

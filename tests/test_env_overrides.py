@@ -89,6 +89,25 @@ def test_reasoning_effort_defaults_to_none(monkeypatch):
     assert dc.DEFAULT_CONFIG["anthropic_effort"] is None
 
 
+def test_agent_llm_override_env_config(monkeypatch):
+    payload = '{"trader":{"model":"gpt-5.6-sol","thinking_level":"high"}}'
+    dc = _reload_with_env(
+        monkeypatch,
+        TRADINGAGENTS_AGENT_LLM_OVERRIDES_ENABLED="true",
+        TRADINGAGENTS_AGENT_LLM_OVERRIDES=payload,
+    )
+    assert dc.DEFAULT_CONFIG["agent_llm_overrides_enabled"] is True
+    # Parsing is intentionally deferred until the feature is enabled at graph
+    # construction, so a disabled optional payload remains completely inert.
+    assert dc.DEFAULT_CONFIG["agent_llm_overrides"] == payload
+
+
+def test_agent_llm_overrides_disabled_by_default(monkeypatch):
+    dc = _reload_with_env(monkeypatch)
+    assert dc.DEFAULT_CONFIG["agent_llm_overrides_enabled"] is False
+    assert dc.DEFAULT_CONFIG["agent_llm_overrides"] == ""
+
+
 def test_empty_env_value_is_passthrough(monkeypatch):
     """Empty TRADINGAGENTS_* values must not clobber the built-in default."""
     dc = _reload_with_env(

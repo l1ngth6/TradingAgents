@@ -19,6 +19,8 @@ _ENV_OVERRIDES = {
     "TRADINGAGENTS_BENCHMARK_TICKER":     "benchmark_ticker",
     "TRADINGAGENTS_TEMPERATURE":          "temperature",
     "TRADINGAGENTS_LLM_MAX_RETRIES":      "llm_max_retries",
+    "TRADINGAGENTS_AGENT_LLM_OVERRIDES_ENABLED": "agent_llm_overrides_enabled",
+    "TRADINGAGENTS_AGENT_LLM_OVERRIDES":         "agent_llm_overrides",
     # Provider-specific reasoning/thinking knobs (None = each provider's own
     # default). Settable here for non-interactive runs; the CLI also offers an
     # interactive choice, which is skipped when the matching var is set.
@@ -100,6 +102,11 @@ DEFAULT_CONFIG = _apply_env_overrides({
     # provider/SDK at its own default (usually 2). Raise it to ride out bursty
     # 429 throttling on rate-limited deployments instead of aborting a run (#1091).
     "llm_max_retries": None,
+    # Optional per-agent model/thinking overrides. This stays completely inert
+    # until explicitly enabled. ``agent_llm_overrides`` accepts a dict in Python
+    # config or a JSON object through TRADINGAGENTS_AGENT_LLM_OVERRIDES.
+    "agent_llm_overrides_enabled": False,
+    "agent_llm_overrides": "",
     # Checkpoint/resume: when True, LangGraph saves state after each node
     # so a crashed run can resume from the last successful step.
     "checkpoint_enabled": False,
