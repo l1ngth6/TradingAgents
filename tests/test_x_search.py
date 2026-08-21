@@ -51,6 +51,7 @@ def test_request_uses_x_search_dates_and_engagement_filter(monkeypatch):
     set_config({
         "x_search_enabled": True,
         "x_search_model": "grok-test",
+        "x_search_thinking_level": "low",
         "x_search_timeout": 17,
         "x_search_max_output_tokens": 9000,
     })
@@ -82,6 +83,7 @@ def test_request_uses_x_search_dates_and_engagement_filter(monkeypatch):
     assert seen["request"].full_url == "https://api.x.ai/v1/responses"
     assert seen["request"].get_header("Authorization") == "Bearer secret-test-key"
     assert request_body["model"] == "grok-test"
+    assert request_body["reasoning"] == {"effort": "low"}
     assert request_body["tools"] == [{
         "type": "x_search", "from_date": "2026-01-08", "to_date": "2026-01-15",
     }]
@@ -101,6 +103,7 @@ def test_openai_compatible_reuses_custom_endpoint_and_key(monkeypatch):
         "x_search_provider": "openai_compatible",
         "backend_url": "http://192.168.2.221:8080/v1/",
         "x_search_model": "grok-build-0.1",
+        "x_search_thinking_level": "medium",
     })
     seen = {}
 
@@ -116,6 +119,7 @@ def test_openai_compatible_reuses_custom_endpoint_and_key(monkeypatch):
     assert seen["url"] == "http://192.168.2.221:8080/v1/responses"
     assert seen["authorization"] == "Bearer custom-endpoint-key"
     assert seen["body"]["model"] == "grok-build-0.1"
+    assert seen["body"]["reasoning"] == {"effort": "medium"}
     assert seen["body"]["tools"][0]["type"] == "x_search"
     assert result == "Subscription-backed X evidence."
 

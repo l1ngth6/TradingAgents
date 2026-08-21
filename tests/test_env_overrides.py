@@ -114,12 +114,14 @@ def test_x_search_env_config(monkeypatch):
         TRADINGAGENTS_X_SEARCH_ENABLED="true",
         TRADINGAGENTS_X_SEARCH_PROVIDER="openai_compatible",
         TRADINGAGENTS_X_SEARCH_MODEL="grok-test",
+        TRADINGAGENTS_X_SEARCH_THINKING_LEVEL="low",
         TRADINGAGENTS_X_SEARCH_TIMEOUT="45",
         TRADINGAGENTS_X_SEARCH_MAX_OUTPUT_TOKENS="9000",
     )
     assert dc.DEFAULT_CONFIG["x_search_enabled"] is True
     assert dc.DEFAULT_CONFIG["x_search_provider"] == "openai_compatible"
     assert dc.DEFAULT_CONFIG["x_search_model"] == "grok-test"
+    assert dc.DEFAULT_CONFIG["x_search_thinking_level"] == "low"
     assert dc.DEFAULT_CONFIG["x_search_timeout"] == 45
     assert dc.DEFAULT_CONFIG["x_search_max_output_tokens"] == 9000
 
@@ -129,6 +131,7 @@ def test_x_search_disabled_by_default(monkeypatch):
     assert dc.DEFAULT_CONFIG["x_search_enabled"] is False
     assert dc.DEFAULT_CONFIG["x_search_provider"] == "xai"
     assert dc.DEFAULT_CONFIG["x_search_model"] == "grok-4.6"
+    assert dc.DEFAULT_CONFIG["x_search_thinking_level"] == "medium"
     assert dc.DEFAULT_CONFIG["x_search_timeout"] == 60
     assert dc.DEFAULT_CONFIG["x_search_max_output_tokens"] == 8000
 

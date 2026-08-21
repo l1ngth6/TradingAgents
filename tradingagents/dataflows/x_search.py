@@ -153,10 +153,12 @@ def fetch_x_sentiment(
         return f"<x_search unavailable: {provider_or_error}>"
 
     model = str(config.get("x_search_model") or "grok-4.6").strip()
+    thinking_level = str(config.get("x_search_thinking_level") or "medium").strip()
     request_timeout = timeout if timeout is not None else float(config.get("x_search_timeout", 60))
     max_output_tokens = int(config.get("x_search_max_output_tokens", 8000))
     body = {
         "model": model,
+        "reasoning": {"effort": thinking_level},
         "input": _search_prompt(ticker, start_date, end_date),
         "tools": [
             {

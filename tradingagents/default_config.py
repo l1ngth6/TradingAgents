@@ -24,6 +24,7 @@ _ENV_OVERRIDES = {
     "TRADINGAGENTS_X_SEARCH_ENABLED":            "x_search_enabled",
     "TRADINGAGENTS_X_SEARCH_PROVIDER":           "x_search_provider",
     "TRADINGAGENTS_X_SEARCH_MODEL":              "x_search_model",
+    "TRADINGAGENTS_X_SEARCH_THINKING_LEVEL":     "x_search_thinking_level",
     "TRADINGAGENTS_X_SEARCH_TIMEOUT":            "x_search_timeout",
     "TRADINGAGENTS_X_SEARCH_MAX_OUTPUT_TOKENS":  "x_search_max_output_tokens",
     # Provider-specific reasoning/thinking knobs (None = each provider's own
@@ -121,6 +122,7 @@ DEFAULT_CONFIG = _apply_env_overrides({
     # gateway to proxy x_search to a Grok subscription or API account.
     "x_search_provider": "xai",
     "x_search_model": "grok-4.6",
+    "x_search_thinking_level": "medium",
     "x_search_timeout": 60,
     # Includes both visible output and reasoning tokens returned by xAI.
     "x_search_max_output_tokens": 8000,
