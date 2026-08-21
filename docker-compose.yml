@@ -1,10 +1,15 @@
 services:
   tradingagents:
-    build: .
+    build:
+      context: .
+      args:
+        APP_UID: ${APP_UID:-1000}
+        APP_GID: ${APP_GID:-1000}
     env_file:
       - .env
     volumes:
       - tradingagents_data:/home/appuser/.tradingagents
+      - ./reports:/home/appuser/app/reports
     tty: true
     stdin_open: true
 
@@ -16,7 +21,11 @@ services:
       - ollama
 
   tradingagents-ollama:
-    build: .
+    build:
+      context: .
+      args:
+        APP_UID: ${APP_UID:-1000}
+        APP_GID: ${APP_GID:-1000}
     env_file:
       - .env
     environment:
@@ -24,6 +33,7 @@ services:
       - OLLAMA_BASE_URL=http://ollama:11434/v1
     volumes:
       - tradingagents_data:/home/appuser/.tradingagents
+      - ./reports:/home/appuser/app/reports
     depends_on:
       - ollama
     tty: true

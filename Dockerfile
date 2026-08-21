@@ -15,14 +15,24 @@ FROM python:3.12-slim
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
+ARG APP_UID=1000
+ARG APP_GID=1000
+
 COPY --from=builder /opt/venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
-RUN useradd --create-home appuser \
- && install -d -m 0755 -o appuser -g appuser /home/appuser/.tradingagents
-USER appuser
+RUN groupadd --gid "${APP_GID}" appuser \
+ && useradd --uid "${APP_UID}" --gid appuser --create-home appuser \
+ && install -d -m 0755 -o appuser -g appuser \
+      /home/appuser/.tradingagents \
+      /home/appuser/app \
+      /home/appuser/app/reports
 WORKDIR /home/appuser/app
 
 COPY --from=builder --chown=appuser:appuser /build .
+COPY docker/entrypoint.py /usr/local/bin/tradingagents-entrypoint.py
 
-ENTRYPOINT ["tradingagents"]
+# The entrypoint starts as root only long enough to repair ownership of bind
+# mounts/named volumes, then permanently drops to appuser before launching.
+USER root
+ENTRYPOINT ["python", "/usr/local/bin/tradingagents-entrypoint.py"]

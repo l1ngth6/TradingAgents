@@ -119,8 +119,13 @@ pip install .
 Alternatively, run with Docker:
 ```bash
 cp .env.example .env  # add your API keys
-docker compose run --rm tradingagents
+APP_UID="$(id -u)" APP_GID="$(id -g)" docker compose run --rm tradingagents
 ```
+
+On Linux, the command above builds the container user with the current host
+user's UID and GID. Reports are persisted in the host's `./reports` directory.
+If that directory does not exist, Docker may create it as root; the container
+repairs its ownership before dropping privileges and starting TradingAgents.
 
 For local models with Ollama:
 ```bash
