@@ -23,6 +23,7 @@ _ENV_OVERRIDES = {
     "TRADINGAGENTS_AGENT_LLM_OVERRIDES":         "agent_llm_overrides",
     "TRADINGAGENTS_X_SEARCH_ENABLED":            "x_search_enabled",
     "TRADINGAGENTS_X_SEARCH_PROVIDER":           "x_search_provider",
+    "TRADINGAGENTS_X_SEARCH_BASE_URL":           "x_search_base_url",
     "TRADINGAGENTS_X_SEARCH_MODEL":              "x_search_model",
     "TRADINGAGENTS_X_SEARCH_THINKING_LEVEL":     "x_search_thinking_level",
     "TRADINGAGENTS_X_SEARCH_TIMEOUT":            "x_search_timeout",
@@ -117,10 +118,15 @@ DEFAULT_CONFIG = _apply_env_overrides({
     # is inert until explicitly enabled and never replaces existing sources.
     # Credentials and endpoint are selected independently of the analyst's LLM.
     "x_search_enabled": False,
-    # "xai" uses the official endpoint + XAI_API_KEY. "openai_compatible"
-    # reuses backend_url + OPENAI_COMPATIBLE_API_KEY, allowing a compatible
-    # gateway to proxy x_search to a Grok subscription or API account.
+    # ``x_search_provider`` selects the Responses compatibility mode and the
+    # fallback transport. An explicit x_search_base_url and
+    # TRADINGAGENTS_X_SEARCH_API_KEY take precedence, keeping this optional
+    # worker independent from the main analyst LLM endpoint and credential.
+    # Without explicit transport settings, "xai" uses api.x.ai + XAI_API_KEY,
+    # while "openai_compatible" reuses backend_url + OPENAI_COMPATIBLE_API_KEY
+    # for backward compatibility.
     "x_search_provider": "xai",
+    "x_search_base_url": None,
     "x_search_model": "grok-4.6",
     "x_search_thinking_level": "medium",
     "x_search_timeout": 60,

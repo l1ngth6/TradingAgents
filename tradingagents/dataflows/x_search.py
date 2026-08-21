@@ -3,8 +3,9 @@
 This module deliberately keeps X retrieval separate from the analyst LLM.  The
 configured Grok model acts only as a bounded search worker through a Responses
 API. The transport can use xAI directly or an explicitly selected
-OpenAI-compatible gateway; its evidence digest is then added to the existing
-Yahoo Finance, StockTwits, and Reddit prompt blocks.
+OpenAI-compatible gateway, with an endpoint and credential independent from the
+main LLM; its evidence digest is then added to the existing Yahoo Finance,
+StockTwits, and Reddit prompt blocks.
 
 The feature is disabled by default and degrades to a plaintext placeholder on
 missing credentials, transport errors, or malformed responses.  No caller has
@@ -40,20 +41,30 @@ def _transport(config: dict) -> tuple[str, str, str] | tuple[None, None, str]:
         valid = ", ".join(sorted(_SUPPORTED_PROVIDERS))
         return None, None, f"unsupported provider {provider!r}; expected one of: {valid}"
 
-    if provider == "xai":
-        api_key = os.getenv("XAI_API_KEY", "").strip()
-        if not api_key:
-            return None, None, "XAI_API_KEY is not set"
-        return _RESPONSES_API, api_key, provider
+    # Explicit X Search transport settings always win. This permits a dedicated
+    # gateway, account, or subscription group without changing the main
+    # openai_compatible endpoint and key. Provider-specific/global settings are
+    # retained solely as convenient backward-compatible fallbacks.
+    base_url = str(config.get("x_search_base_url") or "").strip()
+    api_key = os.getenv("TRADINGAGENTS_X_SEARCH_API_KEY", "").strip()
 
-    base_url = str(config.get("backend_url") or "").strip()
+    if provider == "xai":
+        api_key = api_key or os.getenv("XAI_API_KEY", "").strip()
+        if not api_key:
+            return None, None, (
+                "TRADINGAGENTS_X_SEARCH_API_KEY or XAI_API_KEY is not set"
+            )
+        return _responses_url(base_url) if base_url else _RESPONSES_API, api_key, provider
+
+    base_url = base_url or str(config.get("backend_url") or "").strip()
     if not base_url:
         return None, None, (
+            "TRADINGAGENTS_X_SEARCH_BASE_URL or "
             "TRADINGAGENTS_LLM_BACKEND_URL is not set for openai_compatible"
         )
-    # Match the main openai_compatible client: keyed gateways use the configured
-    # key, while keyless local-compatible servers receive a harmless placeholder.
-    api_key = os.getenv("OPENAI_COMPATIBLE_API_KEY", "").strip() or "EMPTY"
+    # Match the main openai_compatible client's support for keyless local
+    # servers, but prefer the dedicated X Search credential when supplied.
+    api_key = api_key or os.getenv("OPENAI_COMPATIBLE_API_KEY", "").strip() or "EMPTY"
     return _responses_url(base_url), api_key, provider
 
 
@@ -159,7 +170,15 @@ def fetch_x_sentiment(
     body = {
         "model": model,
         "reasoning": {"effort": thinking_level},
-        "input": _search_prompt(ticker, start_date, end_date),
+        # xAI documents X Search through the OpenAI Responses-compatible shape.
+        # A message array is accepted by xAI and is also the least surprising
+        # representation for strict compatible gateways.
+        "input": [
+            {
+                "role": "user",
+                "content": _search_prompt(ticker, start_date, end_date),
+            }
+        ],
         "tools": [
             {
                 "type": "x_search",
