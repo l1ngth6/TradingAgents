@@ -112,6 +112,7 @@ def test_sentiment_prompt_states_constraint(monkeypatch):
     # Pre-fetched sources are stubbed so the prompt builds without network I/O.
     monkeypatch.setattr(sentiment, "fetch_stocktwits_messages", lambda *a, **k: "st")
     monkeypatch.setattr(sentiment, "fetch_reddit_posts", lambda *a, **k: "rd")
+    monkeypatch.setattr(sentiment, "fetch_x_sentiment", lambda *a, **k: "x evidence")
     monkeypatch.setattr(sentiment.get_news, "func", lambda *a, **k: "news", raising=False)
 
     captured = {}
@@ -127,6 +128,8 @@ def test_sentiment_prompt_states_constraint(monkeypatch):
     assert NO_EXTERNAL_TOOLS in text
     # This agent binds no tools, so tool-range wording must not reappear.
     assert "tool-call date ranges" not in text
+    assert "x evidence" in text
+    assert "Do not let X alone determine the overall band or score" in text
 
 
 @pytest.mark.unit

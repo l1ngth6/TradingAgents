@@ -21,6 +21,9 @@ _ENV_OVERRIDES = {
     "TRADINGAGENTS_LLM_MAX_RETRIES":      "llm_max_retries",
     "TRADINGAGENTS_AGENT_LLM_OVERRIDES_ENABLED": "agent_llm_overrides_enabled",
     "TRADINGAGENTS_AGENT_LLM_OVERRIDES":         "agent_llm_overrides",
+    "TRADINGAGENTS_X_SEARCH_ENABLED":            "x_search_enabled",
+    "TRADINGAGENTS_X_SEARCH_MODEL":              "x_search_model",
+    "TRADINGAGENTS_X_SEARCH_TIMEOUT":            "x_search_timeout",
     # Provider-specific reasoning/thinking knobs (None = each provider's own
     # default). Settable here for non-interactive runs; the CLI also offers an
     # interactive choice, which is skipped when the matching var is set.
@@ -107,6 +110,12 @@ DEFAULT_CONFIG = _apply_env_overrides({
     # config or a JSON object through TRADINGAGENTS_AGENT_LLM_OVERRIDES.
     "agent_llm_overrides_enabled": False,
     "agent_llm_overrides": "",
+    # Optional supplemental X evidence for the Sentiment Analyst. The feature
+    # is inert until explicitly enabled and never replaces existing sources.
+    # The search worker uses XAI_API_KEY independently of the analyst's LLM.
+    "x_search_enabled": False,
+    "x_search_model": "grok-4.3",
+    "x_search_timeout": 30,
     # Checkpoint/resume: when True, LangGraph saves state after each node
     # so a crashed run can resume from the last successful step.
     "checkpoint_enabled": False,

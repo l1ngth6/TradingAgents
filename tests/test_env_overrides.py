@@ -108,6 +108,23 @@ def test_agent_llm_overrides_disabled_by_default(monkeypatch):
     assert dc.DEFAULT_CONFIG["agent_llm_overrides"] == ""
 
 
+def test_x_search_env_config(monkeypatch):
+    dc = _reload_with_env(
+        monkeypatch,
+        TRADINGAGENTS_X_SEARCH_ENABLED="true",
+        TRADINGAGENTS_X_SEARCH_MODEL="grok-test",
+        TRADINGAGENTS_X_SEARCH_TIMEOUT="45",
+    )
+    assert dc.DEFAULT_CONFIG["x_search_enabled"] is True
+    assert dc.DEFAULT_CONFIG["x_search_model"] == "grok-test"
+    assert dc.DEFAULT_CONFIG["x_search_timeout"] == 45
+
+
+def test_x_search_disabled_by_default(monkeypatch):
+    dc = _reload_with_env(monkeypatch)
+    assert dc.DEFAULT_CONFIG["x_search_enabled"] is False
+
+
 def test_empty_env_value_is_passthrough(monkeypatch):
     """Empty TRADINGAGENTS_* values must not clobber the built-in default."""
     dc = _reload_with_env(
