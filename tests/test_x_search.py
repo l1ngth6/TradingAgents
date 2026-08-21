@@ -48,7 +48,12 @@ def test_enabled_requires_xai_key(monkeypatch):
 @pytest.mark.unit
 def test_request_uses_x_search_dates_and_engagement_filter(monkeypatch):
     monkeypatch.setenv("XAI_API_KEY", "secret-test-key")
-    set_config({"x_search_enabled": True, "x_search_model": "grok-test", "x_search_timeout": 17})
+    set_config({
+        "x_search_enabled": True,
+        "x_search_model": "grok-test",
+        "x_search_timeout": 17,
+        "x_search_max_output_tokens": 9000,
+    })
     payload = {
         "output": [{
             "type": "message",
@@ -79,6 +84,7 @@ def test_request_uses_x_search_dates_and_engagement_filter(monkeypatch):
         "type": "x_search", "from_date": "2026-01-08", "to_date": "2026-01-15",
     }]
     assert "omit isolated low-impact posts" in request_body["input"]
+    assert request_body["max_output_tokens"] == 9000
     assert seen["timeout"] == 17
     assert "High-engagement discussion was mixed." in result
     assert "https://x.com/example/status/1" in result

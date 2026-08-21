@@ -24,6 +24,7 @@ _ENV_OVERRIDES = {
     "TRADINGAGENTS_X_SEARCH_ENABLED":            "x_search_enabled",
     "TRADINGAGENTS_X_SEARCH_MODEL":              "x_search_model",
     "TRADINGAGENTS_X_SEARCH_TIMEOUT":            "x_search_timeout",
+    "TRADINGAGENTS_X_SEARCH_MAX_OUTPUT_TOKENS":  "x_search_max_output_tokens",
     # Provider-specific reasoning/thinking knobs (None = each provider's own
     # default). Settable here for non-interactive runs; the CLI also offers an
     # interactive choice, which is skipped when the matching var is set.
@@ -114,8 +115,10 @@ DEFAULT_CONFIG = _apply_env_overrides({
     # is inert until explicitly enabled and never replaces existing sources.
     # The search worker uses XAI_API_KEY independently of the analyst's LLM.
     "x_search_enabled": False,
-    "x_search_model": "grok-4.3",
-    "x_search_timeout": 30,
+    "x_search_model": "grok-4.6",
+    "x_search_timeout": 60,
+    # Includes both visible output and reasoning tokens returned by xAI.
+    "x_search_max_output_tokens": 8000,
     # Checkpoint/resume: when True, LangGraph saves state after each node
     # so a crashed run can resume from the last successful step.
     "checkpoint_enabled": False,

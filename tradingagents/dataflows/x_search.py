@@ -120,8 +120,9 @@ def fetch_x_sentiment(
         logger.warning("X Search is enabled but XAI_API_KEY is not set")
         return "<x_search unavailable: XAI_API_KEY is not set>"
 
-    model = str(config.get("x_search_model") or "grok-4.3").strip()
-    request_timeout = timeout if timeout is not None else float(config.get("x_search_timeout", 30))
+    model = str(config.get("x_search_model") or "grok-4.6").strip()
+    request_timeout = timeout if timeout is not None else float(config.get("x_search_timeout", 60))
+    max_output_tokens = int(config.get("x_search_max_output_tokens", 8000))
     body = {
         "model": model,
         "input": _search_prompt(ticker, start_date, end_date),
@@ -132,7 +133,7 @@ def fetch_x_sentiment(
                 "to_date": end_date,
             }
         ],
-        "max_output_tokens": 1600,
+        "max_output_tokens": max_output_tokens,
     }
     req = Request(
         _RESPONSES_API,
