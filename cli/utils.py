@@ -362,7 +362,7 @@ def _llm_provider_table() -> list[tuple[str, str, str | None]]:
         ("Azure OpenAI", "azure", None),
         ("Amazon Bedrock", "bedrock", None),
         ("Ollama", "ollama", ollama_url),
-        ("OpenAI-compatible (vLLM, LM Studio, llama.cpp, custom relay)", "openai_compatible", None),
+        ("OpenAI-compatible Responses API (custom endpoint)", "openai_compatible", None),
     ]
 
 
@@ -389,10 +389,10 @@ def resolve_backend_url(
 
 
 def prompt_openai_compatible_url() -> str:
-    """Prompt for a custom OpenAI-compatible endpoint base URL."""
+    """Prompt for a custom OpenAI-compatible Responses API base URL."""
     url = questionary.text(
-        "Enter the OpenAI-compatible base URL "
-        "(e.g. http://localhost:8000/v1 for vLLM, http://localhost:1234/v1 for LM Studio):",
+        "Enter the OpenAI-compatible Responses API base URL "
+        "(e.g. http://192.168.2.221:8080/v1):",
         validate=lambda x: x.strip().startswith(("http://", "https://"))
         or "Enter a URL starting with http:// or https://",
     ).ask()

@@ -1,10 +1,14 @@
-"""Generic OpenAI-compatible provider (vLLM / LM Studio / llama.cpp / relays).
+"""Generic OpenAI-compatible Responses API provider.
 
 Verifies the user-supplied base_url is required and honored, the key is optional
-(keyless local default), Chat Completions (not the Responses API) is used, any
-model name is accepted, and the env backend URL precedence (#978).
+(keyless local default), /v1/responses is used, reasoning effort works for any
+model name, and the env backend URL precedence is preserved (#978).
 """
 
+import json
+
+import httpx
+import openai
 import pytest
 
 from tradingagents.llm_clients.api_key_env import get_api_key_env
@@ -31,7 +35,7 @@ def test_base_url_required(monkeypatch):
 
 
 @pytest.mark.unit
-def test_keyless_local_uses_placeholder_and_chat_completions(monkeypatch):
+def test_keyless_local_uses_placeholder_and_responses_api(monkeypatch):
     monkeypatch.delenv("OPENAI_COMPATIBLE_API_KEY", raising=False)
     llm = create_llm_client(
         provider="openai_compatible", model="qwen2.5", base_url="http://localhost:8000/v1"
@@ -41,8 +45,45 @@ def test_keyless_local_uses_placeholder_and_chat_completions(monkeypatch):
     # keyless local servers: a placeholder key is sent
     key = llm.openai_api_key.get_secret_value() if hasattr(llm.openai_api_key, "get_secret_value") else llm.openai_api_key
     assert key == "EMPTY"
-    # must use Chat Completions, not OpenAI's Responses API
-    assert getattr(llm, "use_responses_api", False) in (False, None)
+    # The generic provider's contract is specifically the Responses API.
+    assert llm.use_responses_api is True
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("model", ["gpt-5.6-sol", "deepseek-v4-flash", "custom-model"])
+def test_custom_responses_request_path_and_reasoning_payload(monkeypatch, model):
+    """Exercise the SDK transport without contacting a real endpoint."""
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "sk-test")
+    captured = {}
+
+    def capture_request(request):
+        captured["path"] = request.url.path
+        captured["body"] = json.loads(request.content)
+        # Stop after observing the outbound request with a normal API error;
+        # no successful-response fixture is needed to verify the wire contract.
+        return httpx.Response(
+            400,
+            request=request,
+            json={"error": {"message": "request captured", "type": "invalid_request_error"}},
+        )
+
+    http_client = httpx.Client(transport=httpx.MockTransport(capture_request))
+    llm = create_llm_client(
+        provider="openai_compatible",
+        model=model,
+        base_url="http://192.168.2.221:8080/v1",
+        reasoning_effort="high",
+        max_retries=0,
+        http_client=http_client,
+    ).get_llm()
+
+    with pytest.raises(openai.BadRequestError, match="request captured"):
+        llm.invoke("ping")
+
+    assert captured["path"] == "/v1/responses"
+    assert captured["body"]["model"] == model
+    assert captured["body"]["reasoning"] == {"effort": "high"}
+    assert "messages" not in captured["body"]
 
 
 @pytest.mark.unit
@@ -98,3 +139,17 @@ def test_structured_output_suppresses_object_tool_choice(monkeypatch):
     assert out == "BOUND"
     assert captured["method"] == "function_calling"
     assert captured["tool_choice"] is None  # not the object form
+
+
+@pytest.mark.unit
+def test_graph_forwards_effort_to_both_compatible_models():
+    """The shared kwargs are used for both deep and quick client creation."""
+    from tradingagents.graph.trading_graph import TradingAgentsGraph
+
+    graph = TradingAgentsGraph.__new__(TradingAgentsGraph)
+    graph.config = {
+        "llm_provider": "openai_compatible",
+        "openai_reasoning_effort": "medium",
+    }
+
+    assert graph._get_provider_kwargs()["reasoning_effort"] == "medium"

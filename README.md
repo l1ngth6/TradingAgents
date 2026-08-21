@@ -153,7 +153,7 @@ For AWS Bedrock, install the extra with `pip install ".[bedrock]"`, set `llm_pro
 
 For local models, configure Ollama with `llm_provider: "ollama"`. The default endpoint is `http://localhost:11434/v1`; set `OLLAMA_BASE_URL` to point at a remote `ollama-serve`. Pull models with `ollama pull <name>`, and pick "Custom model ID" in the CLI for any model not listed by default.
 
-For any other OpenAI-compatible server (vLLM, LM Studio, llama.cpp, or a custom relay), use `llm_provider: "openai_compatible"` and set the endpoint via `backend_url` (or `TRADINGAGENTS_LLM_BACKEND_URL`), e.g. `http://localhost:8000/v1` for vLLM or `http://localhost:1234/v1` for LM Studio. The model is whatever your server serves. No key is needed for local servers; set `OPENAI_COMPATIBLE_API_KEY` when the endpoint requires one.
+For an OpenAI-compatible server that implements the Responses API, use `llm_provider: "openai_compatible"` and set the endpoint via `backend_url` (or `TRADINGAGENTS_LLM_BACKEND_URL`), e.g. `http://192.168.2.221:8080/v1`. Both the deep-thinking and quick-thinking models use that same base URL and call `/v1/responses`; the client does not fall back to `/v1/chat/completions`. The model IDs are whatever your server exposes. No key is needed for keyless local servers; set `OPENAI_COMPATIBLE_API_KEY` when the endpoint requires one. `TRADINGAGENTS_OPENAI_REASONING_EFFORT` is optional and is forwarded for any model ID, including `gpt-5.6-sol` and `deepseek-v4-*`.
 
 Alternatively, copy `.env.example` to `.env` and fill in your keys:
 ```bash
@@ -221,7 +221,7 @@ from tradingagents.graph.trading_graph import TradingAgentsGraph
 from tradingagents.default_config import DEFAULT_CONFIG
 
 config = DEFAULT_CONFIG.copy()
-config["llm_provider"] = "openai"        # e.g. openai, google, anthropic, deepseek, groq, ollama; openai_compatible covers any OpenAI-compatible endpoint (vLLM, LM Studio, llama.cpp, ...)
+config["llm_provider"] = "openai"        # e.g. openai, google, anthropic, deepseek, groq, ollama; openai_compatible targets a custom Responses API endpoint
 config["deep_think_llm"] = "gpt-5.5"     # Model for complex reasoning
 config["quick_think_llm"] = "gpt-5.4-mini" # Model for quick tasks
 config["max_debate_rounds"] = 2

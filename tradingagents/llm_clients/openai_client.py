@@ -52,8 +52,7 @@ class NormalizedChatOpenAI(ChatOpenAI):
 
 
 class LocalCompatibleChatOpenAI(NormalizedChatOpenAI):
-    """OpenAI-compatible client for arbitrary local servers (LM Studio, vLLM,
-    llama.cpp via the generic ``openai_compatible`` provider).
+    """Responses API client for user-supplied OpenAI-compatible endpoints.
 
     Their tool-calling support varies, and many reject the object-form
     ``tool_choice`` langchain sends for function-calling structured output. Bind
@@ -185,11 +184,11 @@ class ProviderSpec:
     """Declarative config for one OpenAI-compatible provider.
 
     The OpenAI-compatible family (OpenAI, xAI, DeepSeek, Qwen, GLM, MiniMax,
-    OpenRouter, Ollama, and any user endpoint) all speak the same Chat
-    Completions API and differ only by these fields — so one row here replaces
-    the former per-provider base-URL dict, auth handling, and client-class
-    branches. Native Anthropic / Google use their own clients (genuinely
-    different APIs) and are intentionally NOT in this registry.
+    OpenRouter, Ollama, and any user endpoint) share the same client surface and
+    differ only by these fields. Most third-party providers use Chat
+    Completions; native OpenAI and the generic ``openai_compatible`` provider
+    use the Responses API. Native Anthropic / Google use their own clients
+    (genuinely different APIs) and are intentionally NOT in this registry.
 
     The API-key env var stays in ``api_key_env.PROVIDER_API_KEY_ENV`` (the single
     source consulted by both this client and the CLI prompt); only behavior that
@@ -203,7 +202,7 @@ class ProviderSpec:
     key_optional: bool = False                # don't require/prompt; send a placeholder if unset
     placeholder_key: str = "EMPTY"            # sent when no key is available (keyless local servers)
     require_base_url: bool = False            # error if no base_url is resolved (generic endpoint)
-    use_responses_api: bool = False           # native OpenAI Responses API
+    use_responses_api: bool = False           # route calls through /v1/responses
 
 
 # Single source of truth for the OpenAI-compatible provider family. Dual-region
@@ -228,7 +227,10 @@ OPENAI_COMPATIBLE_PROVIDERS: dict[str, ProviderSpec] = {
                                key_optional=True, placeholder_key="ollama"),
     # Generic endpoint: user supplies base_url; key optional (keyless local).
     "openai_compatible": ProviderSpec(
-        require_base_url=True, key_optional=True, chat_class=LocalCompatibleChatOpenAI
+        require_base_url=True,
+        key_optional=True,
+        chat_class=LocalCompatibleChatOpenAI,
+        use_responses_api=True,
     ),
 }
 
@@ -241,10 +243,10 @@ def is_openai_compatible(provider: str) -> bool:
 def _is_native_openai_base_url(base_url: str | None) -> bool:
     """True when ``base_url`` is unset or points at api.openai.com.
 
-    The Responses API (/v1/responses) only exists on native OpenAI. A custom
-    base_url on the ``openai`` provider (a proxy, gateway, or local server)
-    speaks only Chat Completions, so the Responses API must stay off there even
-    though the provider spec enables it (#1024).
+    A custom base_url on the ``openai`` provider retains the legacy assumption
+    that it only speaks Chat Completions, so Responses stays off there (#1024).
+    Users with a custom Responses implementation select ``openai_compatible``
+    explicitly instead.
     """
     if not base_url:
         return True
@@ -257,10 +259,9 @@ def _is_native_openai_base_url(base_url: str | None) -> bool:
 class OpenAIClient(BaseLLMClient):
     """Client for OpenAI, Ollama, OpenRouter, and xAI providers.
 
-    For native OpenAI models, uses the Responses API (/v1/responses) which
-    supports reasoning_effort with function tools across all model families
-    (GPT-4.1, GPT-5). Third-party compatible providers (xAI, OpenRouter,
-    Ollama) use standard Chat Completions.
+    Native OpenAI and the generic ``openai_compatible`` provider use the
+    Responses API (/v1/responses). Named third-party providers such as xAI,
+    OpenRouter, and Ollama retain their existing Chat Completions behavior.
     """
 
     def __init__(
@@ -292,8 +293,8 @@ class OpenAIClient(BaseLLMClient):
                 raise ValueError(
                     f"Provider '{self.provider}' requires a base_url. Set it via "
                     "backend_url / TRADINGAGENTS_LLM_BACKEND_URL to your endpoint, "
-                    "e.g. http://localhost:8000/v1 (vLLM) or http://localhost:1234/v1 "
-                    "(LM Studio)."
+                    "e.g. http://192.168.2.221:8080/v1. The endpoint must implement "
+                    "the OpenAI-compatible Responses API."
                 )
             if base_url:
                 llm_kwargs["base_url"] = base_url
@@ -313,10 +314,13 @@ class OpenAIClient(BaseLLMClient):
                     f"(e.g. add {api_key_env}=your_key to your .env file)."
                 )
 
-            # The Responses API only exists on native OpenAI; if the user points
-            # the openai provider at a custom base_url (proxy/gateway/local), it
-            # only speaks Chat Completions, so keep Responses off there (#1024).
-            if spec.use_responses_api and _is_native_openai_base_url(base_url):
+            # Native OpenAI keeps its existing safety fallback: a custom URL on
+            # provider="openai" is assumed to be a legacy Chat Completions
+            # proxy. The explicit provider="openai_compatible" contract is the
+            # opposite: its user-supplied URL must implement /v1/responses.
+            if spec.use_responses_api and (
+                self.provider != "openai" or _is_native_openai_base_url(base_url)
+            ):
                 llm_kwargs["use_responses_api"] = True
         elif self.base_url:
             llm_kwargs["base_url"] = self.base_url
@@ -325,7 +329,15 @@ class OpenAIClient(BaseLLMClient):
         for key in _PASSTHROUGH_KWARGS:
             if key not in self.kwargs:
                 continue
-            if key == "reasoning_effort" and not _supports_reasoning_effort(self.model):
+            # Preserve native OpenAI's model guard, while generic compatible
+            # endpoints decide which of their model IDs accept reasoning. With
+            # the Responses API, langchain serializes this as
+            # ``reasoning: {"effort": value}``.
+            if (
+                key == "reasoning_effort"
+                and self.provider == "openai"
+                and not _supports_reasoning_effort(self.model)
+            ):
                 continue
             llm_kwargs[key] = self.kwargs[key]
 
