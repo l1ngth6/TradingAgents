@@ -22,6 +22,7 @@ _ENV_OVERRIDES = {
     "TRADINGAGENTS_AGENT_LLM_OVERRIDES_ENABLED": "agent_llm_overrides_enabled",
     "TRADINGAGENTS_AGENT_LLM_OVERRIDES":         "agent_llm_overrides",
     "TRADINGAGENTS_X_SEARCH_ENABLED":            "x_search_enabled",
+    "TRADINGAGENTS_X_SEARCH_PROVIDER":           "x_search_provider",
     "TRADINGAGENTS_X_SEARCH_MODEL":              "x_search_model",
     "TRADINGAGENTS_X_SEARCH_TIMEOUT":            "x_search_timeout",
     "TRADINGAGENTS_X_SEARCH_MAX_OUTPUT_TOKENS":  "x_search_max_output_tokens",
@@ -113,8 +114,12 @@ DEFAULT_CONFIG = _apply_env_overrides({
     "agent_llm_overrides": "",
     # Optional supplemental X evidence for the Sentiment Analyst. The feature
     # is inert until explicitly enabled and never replaces existing sources.
-    # The search worker uses XAI_API_KEY independently of the analyst's LLM.
+    # Credentials and endpoint are selected independently of the analyst's LLM.
     "x_search_enabled": False,
+    # "xai" uses the official endpoint + XAI_API_KEY. "openai_compatible"
+    # reuses backend_url + OPENAI_COMPATIBLE_API_KEY, allowing a compatible
+    # gateway to proxy x_search to a Grok subscription or API account.
+    "x_search_provider": "xai",
     "x_search_model": "grok-4.6",
     "x_search_timeout": 60,
     # Includes both visible output and reasoning tokens returned by xAI.

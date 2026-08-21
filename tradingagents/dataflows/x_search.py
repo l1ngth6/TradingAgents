@@ -1,9 +1,10 @@
-"""Optional xAI X Search source for sentiment analysis.
+"""Optional X Search source for sentiment analysis.
 
 This module deliberately keeps X retrieval separate from the analyst LLM.  The
-configured Grok model acts only as a bounded search worker through xAI's
-Responses API; its evidence digest is then added to the existing Yahoo Finance,
-StockTwits, and Reddit prompt blocks.
+configured Grok model acts only as a bounded search worker through a Responses
+API. The transport can use xAI directly or an explicitly selected
+OpenAI-compatible gateway; its evidence digest is then added to the existing
+Yahoo Finance, StockTwits, and Reddit prompt blocks.
 
 The feature is disabled by default and degrades to a plaintext placeholder on
 missing credentials, transport errors, or malformed responses.  No caller has
@@ -23,6 +24,37 @@ from .config import get_config
 logger = logging.getLogger(__name__)
 
 _RESPONSES_API = "https://api.x.ai/v1/responses"
+_SUPPORTED_PROVIDERS = frozenset({"xai", "openai_compatible"})
+
+
+def _responses_url(base_url: str) -> str:
+    """Resolve a Responses endpoint from an OpenAI-compatible base URL."""
+    normalized = base_url.strip().rstrip("/")
+    return normalized if normalized.endswith("/responses") else normalized + "/responses"
+
+
+def _transport(config: dict) -> tuple[str, str, str] | tuple[None, None, str]:
+    """Resolve request URL and credential for the selected X Search provider."""
+    provider = str(config.get("x_search_provider") or "xai").strip().lower()
+    if provider not in _SUPPORTED_PROVIDERS:
+        valid = ", ".join(sorted(_SUPPORTED_PROVIDERS))
+        return None, None, f"unsupported provider {provider!r}; expected one of: {valid}"
+
+    if provider == "xai":
+        api_key = os.getenv("XAI_API_KEY", "").strip()
+        if not api_key:
+            return None, None, "XAI_API_KEY is not set"
+        return _RESPONSES_API, api_key, provider
+
+    base_url = str(config.get("backend_url") or "").strip()
+    if not base_url:
+        return None, None, (
+            "TRADINGAGENTS_LLM_BACKEND_URL is not set for openai_compatible"
+        )
+    # Match the main openai_compatible client: keyed gateways use the configured
+    # key, while keyless local-compatible servers receive a harmless placeholder.
+    api_key = os.getenv("OPENAI_COMPATIBLE_API_KEY", "").strip() or "EMPTY"
+    return _responses_url(base_url), api_key, provider
 
 
 def _search_prompt(ticker: str, start_date: str, end_date: str) -> str:
@@ -105,7 +137,7 @@ def fetch_x_sentiment(
     *,
     timeout: float | None = None,
 ) -> str:
-    """Fetch a conservative X sentiment evidence digest using xAI X Search.
+    """Fetch a conservative X sentiment evidence digest using Grok X Search.
 
     The global ``x_search_enabled`` switch is checked before credentials or
     network access.  This guarantees that the optional feature is completely
@@ -115,10 +147,10 @@ def fetch_x_sentiment(
     if not config.get("x_search_enabled", False):
         return "<x_search disabled>"
 
-    api_key = os.getenv("XAI_API_KEY", "").strip()
-    if not api_key:
-        logger.warning("X Search is enabled but XAI_API_KEY is not set")
-        return "<x_search unavailable: XAI_API_KEY is not set>"
+    responses_url, api_key, provider_or_error = _transport(config)
+    if responses_url is None or api_key is None:
+        logger.warning("X Search is enabled but unavailable: %s", provider_or_error)
+        return f"<x_search unavailable: {provider_or_error}>"
 
     model = str(config.get("x_search_model") or "grok-4.6").strip()
     request_timeout = timeout if timeout is not None else float(config.get("x_search_timeout", 60))
@@ -136,7 +168,7 @@ def fetch_x_sentiment(
         "max_output_tokens": max_output_tokens,
     }
     req = Request(
-        _RESPONSES_API,
+        responses_url,
         data=json.dumps(body).encode("utf-8"),
         headers={
             "Authorization": f"Bearer {api_key}",
@@ -156,11 +188,13 @@ def fetch_x_sentiment(
         json.JSONDecodeError,
         UnicodeDecodeError,
     ) as exc:
-        logger.warning("xAI X Search failed for %s: %s", ticker, exc)
+        logger.warning("X Search via %s failed for %s: %s", provider_or_error, ticker, exc)
         return f"<x_search unavailable: {type(exc).__name__}>"
 
     text = _response_text(payload)
     if not text:
-        logger.warning("xAI X Search returned no usable text for %s", ticker)
+        logger.warning(
+            "X Search via %s returned no usable text for %s", provider_or_error, ticker
+        )
         return "<x_search unavailable: empty response>"
     return text
