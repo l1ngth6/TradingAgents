@@ -128,6 +128,8 @@ def test_openai_compatible_reuses_custom_endpoint_and_key(monkeypatch):
     assert seen["body"]["model"] == "grok-build-0.1"
     assert "bounded X Search worker" in seen["body"]["instructions"]
     assert seen["body"]["reasoning"] == {"effort": "medium"}
+    assert isinstance(seen["body"]["input"], str)
+    assert "2026-01-08 through 2026-01-15" in seen["body"]["input"]
     assert seen["body"]["tools"] == [{"type": "x_search"}]
     assert "max_output_tokens" not in seen["body"]
     assert result == "Subscription-backed X evidence."
@@ -157,7 +159,7 @@ def test_x_search_dedicated_endpoint_and_key_override_global_settings(monkeypatc
     assert seen["url"] == "http://x-search.example/v1/responses"
     assert seen["authorization"] == "Bearer dedicated-x-key"
     assert "bounded X Search worker" in seen["body"]["instructions"]
-    assert seen["body"]["input"][0]["role"] == "user"
+    assert isinstance(seen["body"]["input"], str)
     assert seen["body"]["tools"] == [{"type": "x_search"}]
     assert "max_output_tokens" not in seen["body"]
     assert result == "Dedicated transport works."
@@ -186,6 +188,7 @@ def test_xai_mode_can_use_dedicated_endpoint_and_key(monkeypatch):
     assert seen["url"] == "https://grok-gateway.example/v1/responses"
     assert seen["authorization"] == "Bearer gateway-key"
     assert "bounded X Search worker" in seen["body"]["instructions"]
+    assert seen["body"]["input"][0]["role"] == "user"
     assert seen["body"]["tools"] == [{
         "type": "x_search", "from_date": "2026-01-08", "to_date": "2026-01-15",
     }]

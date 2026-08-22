@@ -173,6 +173,7 @@ def fetch_x_sentiment(
     model = str(config.get("x_search_model") or "grok-4.6").strip()
     thinking_level = str(config.get("x_search_thinking_level") or "medium").strip()
     request_timeout = timeout if timeout is not None else float(config.get("x_search_timeout", 60))
+    prompt = _search_prompt(ticker, start_date, end_date)
     search_tool = {"type": "x_search"}
     body = {
         "model": model,
@@ -180,15 +181,10 @@ def fetch_x_sentiment(
         # top-level instructions field before they will forward the request.
         "instructions": _SEARCH_INSTRUCTIONS,
         "reasoning": {"effort": thinking_level},
-        # xAI documents X Search through the OpenAI Responses-compatible shape.
-        # A message array is accepted by xAI and is also the least surprising
-        # representation for strict compatible gateways.
-        "input": [
-            {
-                "role": "user",
-                "content": _search_prompt(ticker, start_date, end_date),
-            }
-        ],
+        # The string form is the smallest Responses-compatible input shape and
+        # avoids gateways that accept an input array or reasoning separately
+        # but fail when both appear in the same request.
+        "input": prompt,
         "tools": [search_tool],
     }
     if provider == "xai":
@@ -196,6 +192,7 @@ def fetch_x_sentiment(
         # compatible gateways may reject these optional fields even though the
         # date range remains explicit in the prompt, so use the common subset
         # for openai_compatible transports.
+        body["input"] = [{"role": "user", "content": prompt}]
         search_tool.update({"from_date": start_date, "to_date": end_date})
         body["max_output_tokens"] = int(config.get("x_search_max_output_tokens", 8000))
     req = Request(
