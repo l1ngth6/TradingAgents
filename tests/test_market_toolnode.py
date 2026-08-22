@@ -21,7 +21,16 @@ def test_market_toolnode_can_execute_verified_snapshot():
         "registered in the market ToolNode, so the model's call fails."
     )
     # the other core market tools must remain too
-    assert {"get_stock_data", "get_indicators", "get_crypto_derivatives"} <= market_tools
+    assert {"get_stock_data", "get_indicators"} <= market_tools
+    assert "get_crypto_derivatives" not in market_tools
+
+    crypto_tools = set(nodes["crypto_intelligence"].tools_by_name)
+    assert {
+        "get_crypto_derivatives",
+        "get_crypto_options",
+        "get_crypto_onchain",
+        "get_crypto_liquidations",
+    } <= crypto_tools
 
 
 @pytest.mark.unit
@@ -36,6 +45,10 @@ def test_stock_market_analyst_cannot_see_crypto_tools():
 
 
 @pytest.mark.unit
-def test_crypto_market_analyst_can_see_crypto_tools():
+def test_crypto_market_analyst_leaves_crypto_native_tools_to_auxiliary_agent():
     tool_names = {tool.name for tool in _tools_for_asset_type("crypto")}
-    assert "get_crypto_derivatives" in tool_names
+    assert tool_names == {
+        "get_stock_data",
+        "get_indicators",
+        "get_verified_market_snapshot",
+    }

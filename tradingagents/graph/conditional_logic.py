@@ -49,6 +49,21 @@ class ConditionalLogic:
             return "tools_fundamentals"
         return "Msg Clear Fundamentals"
 
+    def should_run_crypto_intelligence(self, state: AgentState) -> str:
+        if (
+            state.get("asset_type") == "crypto"
+            and state.get("crypto_intelligence_mode") in {"shadow", "advisory"}
+        ):
+            return "Crypto Intelligence Analyst"
+        return "Bull Researcher"
+
+    def should_continue_crypto_intelligence(self, state: AgentState):
+        messages = state["messages"]
+        last_message = messages[-1]
+        if getattr(last_message, "tool_calls", None):
+            return "tools_crypto_intelligence"
+        return "Msg Clear Crypto Intelligence"
+
     def should_continue_debate(self, state: AgentState) -> str:
         """Determine if debate should continue."""
 

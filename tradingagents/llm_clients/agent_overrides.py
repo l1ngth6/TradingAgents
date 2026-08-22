@@ -15,6 +15,7 @@ AGENT_LLM_ROLE_DEFAULTS: dict[str, str] = {
     "sentiment_analyst": "quick",
     "news_analyst": "quick",
     "fundamentals_analyst": "quick",
+    "crypto_intelligence_analyst": "quick",
     "bull_researcher": "quick",
     "bear_researcher": "quick",
     "research_manager": "deep",

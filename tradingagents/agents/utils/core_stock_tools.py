@@ -3,6 +3,7 @@ from typing import Annotated
 from langchain_core.tools import tool
 
 from tradingagents.dataflows.interface import route_to_vendor
+from tradingagents.market_time import completed_daily_cutoff_for_symbol
 
 
 @tool
@@ -21,4 +22,5 @@ def get_stock_data(
     Returns:
         str: A formatted dataframe containing the stock price data for the specified ticker symbol in the specified date range.
     """
-    return route_to_vendor("get_stock_data", symbol, start_date, end_date)
+    closed_end = completed_daily_cutoff_for_symbol(end_date, symbol)
+    return route_to_vendor("get_stock_data", symbol, start_date, closed_end)

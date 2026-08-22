@@ -39,6 +39,15 @@ def create_portfolio_manager(llm):
             if past_context
             else ""
         )
+        horizon_labels = {
+            "weekly": "Weekly (3-7 calendar days)",
+            "monthly": "Monthly (2-4 weeks)",
+            "strategic": "Strategic (1-3 months)",
+        }
+        horizon = horizon_labels.get(
+            state.get("decision_horizon", "monthly"),
+            horizon_labels["monthly"],
+        )
 
         prompt = f"""As the Portfolio Manager, synthesize the risk analysts' debate and deliver the final trading decision.
 
@@ -63,6 +72,10 @@ def create_portfolio_manager(llm):
 ---
 
 Be decisive and ground every conclusion in specific evidence from the analysts.
+The final time horizon must be exactly `{horizon}`. Keep a hard stop distinct
+from a conditional risk trigger, its confirmation interval, and the action on
+trigger. If portfolio context is absent, say the current position is unknown
+and make allocation/action sizing conditional rather than inventing a holding.
 
 {NO_EXTERNAL_TOOLS}{get_language_instruction()}"""
 
@@ -70,7 +83,7 @@ Be decisive and ground every conclusion in specific evidence from the analysts.
             structured_llm,
             llm,
             prompt,
-            render_pm_decision,
+            lambda decision: render_pm_decision(decision, forced_horizon=horizon),
             "Portfolio Manager",
         )
 

@@ -16,6 +16,7 @@ import pandas as pd
 from stockstats import wrap
 
 from tradingagents.dataflows.stockstats_utils import load_ohlcv
+from tradingagents.market_time import completed_daily_cutoff_for_symbol
 
 # A fixed, common indicator set so the snapshot is the same shape every run.
 DEFAULT_SNAPSHOT_INDICATORS: tuple[str, ...] = (
@@ -32,6 +33,7 @@ def _verified_rows(symbol: str, curr_date: str) -> pd.DataFrame:
     look-ahead rows, but we re-apply the cutoff defensively — this is a
     verification path, so it must not trust its input to be pre-filtered.
     """
+    curr_date = completed_daily_cutoff_for_symbol(curr_date, symbol)
     data = load_ohlcv(symbol, curr_date)
     if data is None or data.empty:
         raise ValueError(f"No OHLCV data available for {symbol}.")
@@ -66,6 +68,7 @@ def build_verified_market_snapshot(
     indicators: Iterable[str] | None = None,
 ) -> str:
     """Render a ground-truth snapshot: latest OHLCV row, indicators, recent closes."""
+    curr_date = completed_daily_cutoff_for_symbol(curr_date, symbol)
     # `df` keeps the original capitalized OHLCV columns (Open/High/Low/Close/
     # Volume); stockstats `wrap()` lowercases columns and adds indicator
     # columns, so read raw prices from `df` and indicators from `stock_df`.
@@ -91,7 +94,7 @@ def build_verified_market_snapshot(
         "",
         f"- Requested analysis date: {curr_date}",
         f"- Latest trading row used: {latest_date}",
-        "- Rows after the requested analysis date are excluded before verification.",
+        "- This is completed daily-candle data. Rows after this closed-candle cutoff are excluded.",
         "",
         "### Latest verified OHLCV row",
         "",

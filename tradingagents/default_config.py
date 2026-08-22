@@ -142,6 +142,10 @@ DEFAULT_CONFIG = _apply_env_overrides({
     "max_debate_rounds": 1,
     "max_risk_discuss_rounds": 1,
     "max_recur_limit": 100,
+    # Per-task defaults for programmatic callers. The CLI always asks at task
+    # initialization; these keys intentionally have no environment overrides.
+    "decision_horizon": "monthly",
+    "crypto_intelligence_mode": "disabled",
     # News / data fetching parameters
     # Increase for longer lookback strategies or to broaden macro coverage;
     # decrease to reduce token usage in agent prompts.
@@ -171,6 +175,9 @@ DEFAULT_CONFIG = _apply_env_overrides({
         "prediction_markets": "polymarket",  # Options: polymarket (keyless)
         "crypto_derivatives": "binance",     # Options: binance (keyless)
         "crypto_sentiment": "alternative_me",  # Options: alternative_me (keyless)
+        "crypto_options": "deribit",          # Options: deribit (keyless; BTC/ETH)
+        "crypto_onchain": "coin_metrics",     # Coin Metrics Community + optional Dune
+        "crypto_liquidations": "coinalyze",   # Optional free API key
     },
     # Tool-level configuration (takes precedence over category-level)
     "tool_vendors": {

@@ -97,7 +97,9 @@ class ResearchPlan(BaseModel):
     strategic_actions: str = Field(
         description=(
             "Concrete steps for the trader to implement the recommendation, "
-            "including position sizing guidance consistent with the rating."
+            "including conditional sizing guidance consistent with the rating. "
+            "Do not invent a current holding or arbitrary buy/sell fraction when "
+            "portfolio context was not supplied."
         ),
     )
 
@@ -142,11 +144,33 @@ class TraderProposal(BaseModel):
     )
     stop_loss: float | None = Field(
         default=None,
-        description="Optional stop-loss price in the instrument's quote currency.",
+        description=(
+            "Optional unconditional hard protective stop in quote currency. Do not "
+            "use this field for a close-confirmed or volume-confirmed risk trigger."
+        ),
     )
     position_sizing: str | None = Field(
         default=None,
-        description="Optional sizing guidance, e.g. '5% of portfolio'.",
+        description=(
+            "Optional sizing guidance. If no portfolio context is supplied, make it "
+            "conditional instead of inventing an existing position or sale fraction."
+        ),
+    )
+    risk_trigger: str | None = Field(
+        default=None,
+        description="Optional conditional risk trigger, separate from the hard stop.",
+    )
+    action_on_trigger: str | None = Field(
+        default=None,
+        description="Action to take only if risk_trigger occurs; state assumptions.",
+    )
+    confirmation_interval: str | None = Field(
+        default=None,
+        description="Confirmation interval for risk_trigger, e.g. 1h or 4h close.",
+    )
+    target_exposure: str | None = Field(
+        default=None,
+        description="Conditional target exposure after execution, when context supports it.",
     )
 
     @field_validator("entry_price", "stop_loss", mode="before")
@@ -173,6 +197,14 @@ def render_trader_proposal(proposal: TraderProposal) -> str:
         parts.extend(["", f"**Stop Loss**: {proposal.stop_loss}"])
     if proposal.position_sizing:
         parts.extend(["", f"**Position Sizing**: {proposal.position_sizing}"])
+    if proposal.target_exposure:
+        parts.extend(["", f"**Target Exposure**: {proposal.target_exposure}"])
+    if proposal.risk_trigger:
+        parts.extend(["", f"**Risk Trigger**: {proposal.risk_trigger}"])
+    if proposal.confirmation_interval:
+        parts.extend(["", f"**Confirmation Interval**: {proposal.confirmation_interval}"])
+    if proposal.action_on_trigger:
+        parts.extend(["", f"**Action on Trigger**: {proposal.action_on_trigger}"])
     parts.extend([
         "",
         f"FINAL TRANSACTION PROPOSAL: **{proposal.action.value.upper()}**",
@@ -219,16 +251,40 @@ class PortfolioDecision(BaseModel):
     )
     time_horizon: str | None = Field(
         default=None,
-        description="Optional recommended holding period, e.g. '3-6 months'.",
+        description="Must match the task-selected decision horizon; do not choose a new horizon.",
+    )
+    current_position_assumption: str | None = Field(
+        default=None,
+        description="State the supplied current position or explicitly say it is unknown.",
+    )
+    target_allocation: str | None = Field(
+        default=None,
+        description="Conditional target allocation; do not invent account values.",
+    )
+    hard_stop: float | None = Field(
+        default=None,
+        description="Optional unconditional hard protective stop, distinct from risk_trigger.",
+    )
+    risk_trigger: str | None = Field(
+        default=None,
+        description="Conditional risk threshold based only on completed bars or explicit intraday rules.",
+    )
+    action_on_trigger: str | None = Field(
+        default=None,
+        description="Concrete action if the conditional risk trigger fires.",
+    )
+    confirmation_interval: str | None = Field(
+        default=None,
+        description="Time interval required to confirm the conditional trigger.",
     )
 
-    @field_validator("price_target", mode="before")
+    @field_validator("price_target", "hard_stop", mode="before")
     @classmethod
     def _nullish_float_to_none(cls, v):
         return _coerce_optional_float(v)
 
 
-def render_pm_decision(decision: PortfolioDecision) -> str:
+def render_pm_decision(decision: PortfolioDecision, forced_horizon: str | None = None) -> str:
     """Render a PortfolioDecision back to the markdown shape the rest of the system expects.
 
     Memory log, CLI display, and saved report files all read this markdown,
@@ -245,8 +301,21 @@ def render_pm_decision(decision: PortfolioDecision) -> str:
     ]
     if decision.price_target is not None:
         parts.extend(["", f"**Price Target**: {decision.price_target}"])
-    if decision.time_horizon:
-        parts.extend(["", f"**Time Horizon**: {decision.time_horizon}"])
+    if decision.current_position_assumption:
+        parts.extend(["", f"**Current Position Assumption**: {decision.current_position_assumption}"])
+    if decision.target_allocation:
+        parts.extend(["", f"**Target Allocation**: {decision.target_allocation}"])
+    if decision.hard_stop is not None:
+        parts.extend(["", f"**Hard Stop**: {decision.hard_stop}"])
+    if decision.risk_trigger:
+        parts.extend(["", f"**Risk Trigger**: {decision.risk_trigger}"])
+    if decision.confirmation_interval:
+        parts.extend(["", f"**Confirmation Interval**: {decision.confirmation_interval}"])
+    if decision.action_on_trigger:
+        parts.extend(["", f"**Action on Trigger**: {decision.action_on_trigger}"])
+    horizon = forced_horizon or decision.time_horizon
+    if horizon:
+        parts.extend(["", f"**Time Horizon**: {horizon}"])
     return "\n".join(parts)
 
 

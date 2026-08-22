@@ -49,6 +49,14 @@ class AgentState(MessagesState):
     asset_type: Annotated[str, "Asset type under analysis such as stock or crypto"]
     instrument_context: Annotated[str, "Deterministic ticker identity resolved at run start"]
     trade_date: Annotated[str, "What date we are trading at"]
+    analysis_as_of: Annotated[str, "Live-information cutoff at task start"]
+    completed_daily_candle_date: Annotated[str, "Last fully closed daily candle date"]
+    decision_horizon: Annotated[str, "weekly, monthly, or strategic decision horizon"]
+    crypto_intelligence_mode: Annotated[str, "disabled, shadow, or advisory"]
+    heatmap_input: Annotated[str, "Optional original heatmap path or HTTPS URL"]
+    heatmap_artifact: Annotated[dict, "Validated local heatmap artifact metadata"]
+    heatmap_visual_report: Annotated[str, "One-shot heatmap visual extraction text"]
+    portfolio_context: Annotated[dict, "Optional user-supplied position and risk context"]
 
     sender: Annotated[str, "Agent that sent this message"]
 
@@ -59,6 +67,7 @@ class AgentState(MessagesState):
         str, "Report from the News Researcher of current world affairs"
     ]
     fundamentals_report: Annotated[str, "Report from the Fundamentals Researcher"]
+    crypto_intelligence_report: Annotated[str, "Auxiliary crypto-native intelligence report"]
 
     # researcher team discussion step
     investment_debate_state: Annotated[

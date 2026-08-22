@@ -6,8 +6,10 @@ CLI and ``TradingAgentsGraph.save_reports`` both call this, so a headless / API
 run produces the same on-disk report tree a CLI run does.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
+
+from tradingagents.heatmap_input import copy_heatmap_artifact
 
 
 def write_report_tree(final_state: dict, ticker: str, save_path) -> Path:
@@ -35,6 +37,22 @@ def write_report_tree(final_state: dict, ticker: str, save_path) -> Path:
         analysts_dir.mkdir(exist_ok=True)
         (analysts_dir / "fundamentals.md").write_text(final_state["fundamentals_report"], encoding="utf-8")
         analyst_parts.append(("Fundamentals Analyst", final_state["fundamentals_report"]))
+    if final_state.get("crypto_intelligence_report"):
+        analysts_dir.mkdir(exist_ok=True)
+        (analysts_dir / "crypto_intelligence.md").write_text(
+            final_state["crypto_intelligence_report"], encoding="utf-8"
+        )
+        analyst_parts.append(
+            ("Crypto Intelligence Analyst (Auxiliary)", final_state["crypto_intelligence_report"])
+        )
+    if final_state.get("heatmap_artifact"):
+        analysts_dir.mkdir(exist_ok=True)
+        copy_heatmap_artifact(final_state["heatmap_artifact"], analysts_dir)
+    if final_state.get("heatmap_visual_report"):
+        analysts_dir.mkdir(exist_ok=True)
+        (analysts_dir / "liquidation_heatmap_visual_extraction.md").write_text(
+            final_state["heatmap_visual_report"], encoding="utf-8"
+        )
     if analyst_parts:
         content = "\n\n".join(f"### {name}\n{text}" for name, text in analyst_parts)
         sections.append(f"## I. Analyst Team Reports\n\n{content}")
@@ -96,6 +114,15 @@ def write_report_tree(final_state: dict, ticker: str, save_path) -> Path:
             sections.append(f"## V. Portfolio Manager Decision\n\n### Portfolio Manager\n{risk['judge_decision']}")
 
     # Write consolidated report
-    header = f"# Trading Analysis Report: {ticker}\n\nGenerated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+    generated = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    metadata = [
+        f"- Generated: {generated}",
+        f"- Analysis date: {final_state.get('trade_date', 'unknown')}",
+        f"- Live information cutoff: {final_state.get('analysis_as_of', 'unknown')}",
+        f"- Completed daily candle cutoff: {final_state.get('completed_daily_candle_date', 'unknown')}",
+        f"- Decision horizon: {final_state.get('decision_horizon', 'monthly')}",
+        f"- Crypto intelligence mode: {final_state.get('crypto_intelligence_mode', 'disabled')}",
+    ]
+    header = f"# Trading Analysis Report: {ticker}\n\n## Run metadata\n\n" + "\n".join(metadata) + "\n\n"
     (save_path / "complete_report.md").write_text(header + "\n\n".join(sections), encoding="utf-8")
     return save_path / "complete_report.md"

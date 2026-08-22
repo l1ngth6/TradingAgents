@@ -242,32 +242,70 @@ See `tradingagents/default_config.py` for all configuration options.
 
 ### Cryptocurrency-native data
 
-Crypto runs keep Yahoo Finance as the verified OHLCV/technical-indicator source,
-then add two keyless, optional enrichment sources:
+Crypto runs keep Yahoo Finance as the verified completed-daily-OHLCV and
+technical-indicator source. A single optional **Crypto Intelligence Analyst**
+owns the crypto-native cross-check so the core analysts do not duplicate work.
+At task initialization the CLI asks for `Disabled`, `Shadow`, or `Advisory`:
+
+- Shadow (recommended initially) saves the independent report but keeps it out
+  of the bull/bear and portfolio decision path.
+- Advisory passes only a short cross-validation summary downstream; it is never
+  a standalone direction signal.
+- Disabled skips the crypto-native agent and the optional heatmap prompt.
+
+The free-first sources are:
 
 - Binance USD-M futures: funding-rate history, open interest, global long/short
-  account ratio, and taker buy/sell flow for supported USDT perpetuals.
+  account ratio, taker-flow/CVD proxy, and current futures depth imbalance for
+  supported USDT perpetuals.
+- Deribit public API: BTC/ETH ATM IV term structure, put/call positioning,
+  strike/expiry concentration, and implied-versus-realized volatility context.
+- Coin Metrics Community: basic network and stablecoin-supply metrics. Optional
+  Dune query IDs can supply user-defined licensed on-chain or ETF-flow datasets.
+- Coinalyze (optional free API key): actual long/short liquidation history. It
+  is explicitly not treated as a predicted liquidation heatmap.
 - Alternative.me: the historical Crypto Fear & Greed Index, labeled as a
   Bitcoin-centric broad-market proxy rather than coin-specific sentiment.
 
-Both sources are capped at the requested analysis date. Binance retains some
+The CLI can also accept a local liquidation-heatmap image or public HTTPS image
+URL. The selected Crypto Intelligence model reads it once in a dedicated,
+tool-free multimodal request with `detail=original`. Only the resulting text,
+tagged `estimated_visual_extraction`, enters the subsequent numeric/tool-based
+analysis; the raw image is not carried through that loop. The image is hashed
+and copied into the saved report and can only cross-check numeric sources. It
+cannot independently alter the rating.
+
+Historical-capable sources are capped at the requested analysis date. Binance retains some
 positioning series for only a limited recent window, so an older analysis may
 show funding data while marking open-interest or ratio history unavailable. A
-network error, regional Binance restriction, rate limit, or unsupported future
+current-only option surface is refused during historical tasks. A network
+error, regional restriction, rate limit, missing optional key, or unsupported future
 degrades these optional sections without aborting the main analysis. Configure
-the vendors through `data_vendors.crypto_derivatives` and
-`data_vendors.crypto_sentiment`; no API keys are required by default.
+the vendors through the `data_vendors.crypto_*` entries. Binance, Deribit, Coin
+Metrics Community, and Alternative.me require no key; see `.env.example` for
+optional Coinalyze and Dune credentials.
 The CLI detects crypto pairs automatically; programmatic callers should pass
-`asset_type="crypto"` to `propagate()` and interpret its `trade_date` as a UTC
-calendar date.
+`asset_type="crypto"` to `propagate()`:
 
-Crypto analysis uses UTC calendar dates: a new daily candle starts at 00:00 UTC
-(08:00 in Beijing). The CLI's default analysis date and future-date validation,
-as well as OHLCV cache rollover/freshness, follow this UTC boundary and do not
-depend on the host timezone. Other asset types retain host-local date behaviour
-for now. Programmatic crypto runs reject a `trade_date` later than the current
-UTC calendar date, preventing a host-local “today” from selecting a candle that
-has not started yet.
+```python
+state, decision = ta.propagate(
+    "BTC-USD",
+    "2026-08-22",
+    asset_type="crypto",
+    decision_horizon="monthly",             # weekly | monthly | strategic
+    crypto_intelligence_mode="shadow",      # disabled | shadow | advisory
+    heatmap_input="https://example.com/heatmap.webp",  # optional local path or HTTPS
+    portfolio_context={"current_position": "unknown", "max_drawdown": "5%"},
+)
+```
+
+Crypto analysis uses two explicit cutoffs. `analysis_as_of` allows the latest
+UTC date and live news/quotes/crypto-native context, while
+`completed_daily_candle_date` is the most recent fully closed 00:00-00:00 UTC
+candle. Every SMA/EMA/RSI/MACD/Bollinger/ATR/volume/candlestick calculation is
+clamped to the latter, so a live price is never labeled as a daily close or a
+confirmed breakout. The CLI default and future-date validation follow UTC
+(08:00 in Beijing) rather than the host timezone.
 
 ## Persistence and Recovery
 

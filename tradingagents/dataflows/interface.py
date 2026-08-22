@@ -13,6 +13,11 @@ from .alpha_vantage import (
 )
 from .alternative_me import get_crypto_fear_greed as get_alternative_me_fear_greed
 from .binance_crypto import get_crypto_derivatives as get_binance_crypto_derivatives
+from .crypto_intelligence import (
+    get_coinalyze_liquidations,
+    get_crypto_onchain as get_coin_metrics_onchain,
+    get_deribit_options,
+)
 from .config import get_config
 from .errors import (
     NoMarketDataError,
@@ -88,7 +93,19 @@ TOOLS_CATEGORIES = {
         "tools": [
             "get_crypto_fear_greed",
         ]
-    }
+    },
+    "crypto_options": {
+        "description": "Crypto options and volatility surface context",
+        "tools": ["get_crypto_options"],
+    },
+    "crypto_onchain": {
+        "description": "Free-first on-chain, stablecoin, and configured ETF-flow context",
+        "tools": ["get_crypto_onchain"],
+    },
+    "crypto_liquidations": {
+        "description": "Observed crypto liquidation history",
+        "tools": ["get_crypto_liquidations"],
+    },
 }
 
 VENDOR_LIST = [
@@ -97,6 +114,9 @@ VENDOR_LIST = [
     "polymarket",
     "binance",
     "alternative_me",
+    "deribit",
+    "coin_metrics",
+    "coinalyze",
     "alpha_vantage",
 ]
 
@@ -110,6 +130,9 @@ OPTIONAL_CATEGORIES = {
     "prediction_markets",
     "crypto_derivatives",
     "crypto_sentiment",
+    "crypto_options",
+    "crypto_onchain",
+    "crypto_liquidations",
 }
 
 # Mapping of methods to their vendor-specific implementations
@@ -168,6 +191,15 @@ VENDOR_METHODS = {
     },
     "get_crypto_fear_greed": {
         "alternative_me": get_alternative_me_fear_greed,
+    },
+    "get_crypto_options": {
+        "deribit": get_deribit_options,
+    },
+    "get_crypto_onchain": {
+        "coin_metrics": get_coin_metrics_onchain,
+    },
+    "get_crypto_liquidations": {
+        "coinalyze": get_coinalyze_liquidations,
     },
 }
 

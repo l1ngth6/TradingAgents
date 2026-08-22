@@ -11,9 +11,21 @@ until exchange-specific calendars/timezones are introduced.
 
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from dataclasses import dataclass
+from datetime import date, datetime, time, timedelta, timezone
+
+from tradingagents.dataflows.symbol_utils import crypto_base
 
 CRYPTO_MARKET_TIMEZONE = timezone.utc
+
+
+@dataclass(frozen=True)
+class AnalysisCutoffs:
+    """The live-information and completed-candle cutoffs for one task."""
+
+    analysis_as_of: str
+    completed_daily_candle_date: str
+    is_live_analysis: bool
 
 
 def _asset_type_value(asset_type: object) -> str:
@@ -64,6 +76,69 @@ def validate_analysis_date(
             f"analysis date {requested} is later than the {boundary} {latest}"
         )
     return requested
+
+
+def analysis_cutoffs(
+    analysis_date: object,
+    asset_type: object = "stock",
+    *,
+    now: datetime | None = None,
+) -> AnalysisCutoffs:
+    """Resolve the two time boundaries used by an analysis.
+
+    Crypto may analyse the latest UTC date and use live information observed at
+    task start, but every daily-candle calculation is capped at the most recent
+    fully closed 00:00-00:00 UTC candle. Historical dates keep their requested
+    date as the completed-candle cutoff. Non-crypto markets retain the existing
+    date semantics until exchange-specific calendars are available.
+    """
+    if uses_utc_market_day(asset_type):
+        instant = now or datetime.now(CRYPTO_MARKET_TIMEZONE)
+        if instant.tzinfo is None:
+            raise ValueError("now must be timezone-aware for crypto analysis cutoffs")
+        instant = instant.astimezone(CRYPTO_MARKET_TIMEZONE)
+        today = instant.date()
+        requested = validate_analysis_date(
+            analysis_date, asset_type, market_today=today
+        )
+        live = requested == today
+        as_of = instant if live else datetime.combine(requested, time.max, CRYPTO_MARKET_TIMEZONE)
+        completed = requested - timedelta(days=1) if live else requested
+        return AnalysisCutoffs(
+            analysis_as_of=as_of.isoformat(timespec="seconds"),
+            completed_daily_candle_date=completed.isoformat(),
+            is_live_analysis=live,
+        )
+
+    local_now = now or datetime.now().astimezone()
+    requested = validate_analysis_date(
+        analysis_date, asset_type, market_today=local_now.date()
+    )
+    live = requested == local_now.date()
+    as_of = local_now if live else datetime.combine(requested, time.max).astimezone()
+    return AnalysisCutoffs(
+        analysis_as_of=as_of.isoformat(timespec="seconds"),
+        completed_daily_candle_date=requested.isoformat(),
+        is_live_analysis=live,
+    )
+
+
+def completed_daily_cutoff_for_symbol(value: str, symbol: str) -> str:
+    """Defensively clamp a crypto daily-data request to a closed UTC candle.
+
+    This lives in the data path as a backstop for malformed model tool calls:
+    even if an agent supplies today's date, current crypto OHLCV cannot become
+    an input to SMA/EMA/RSI/MACD/Bollinger/ATR or candle-pattern analysis.
+    """
+    normalized = str(symbol).strip().upper()
+    is_crypto = bool(crypto_base(normalized))
+    if not is_crypto:
+        return str(value)
+    requested = validate_analysis_date(value, "crypto")
+    today = current_market_date("crypto")
+    if requested >= today:
+        return (today - timedelta(days=1)).isoformat()
+    return requested.isoformat()
 
 
 def market_timestamp(asset_type: object = "stock") -> str:

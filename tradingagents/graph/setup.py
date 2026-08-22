@@ -10,6 +10,7 @@ from tradingagents.agents import (
     create_bear_researcher,
     create_bull_researcher,
     create_conservative_debator,
+    create_crypto_intelligence_analyst,
     create_fundamentals_analyst,
     create_market_analyst,
     create_msg_delete,
@@ -118,6 +119,12 @@ class GraphSetup:
         portfolio_manager_node = create_portfolio_manager(
             self._llm_for("portfolio_manager", self.deep_thinking_llm)
         )
+        has_crypto_intelligence = "crypto_intelligence" in self.tool_nodes
+        crypto_intelligence_node = None
+        if has_crypto_intelligence:
+            crypto_intelligence_node = create_crypto_intelligence_analyst(
+                self._llm_for("crypto_intelligence_analyst", self.quick_thinking_llm)
+            )
 
         # Create workflow
         workflow = StateGraph(AgentState)
@@ -127,6 +134,11 @@ class GraphSetup:
             workflow.add_node(spec.agent_node, analyst_factories[spec.key]())
             workflow.add_node(spec.clear_node, create_msg_delete())
             workflow.add_node(spec.tool_node, self.tool_nodes[spec.key])
+
+        if has_crypto_intelligence:
+            workflow.add_node("Crypto Intelligence Analyst", crypto_intelligence_node)
+            workflow.add_node("Msg Clear Crypto Intelligence", create_msg_delete())
+            workflow.add_node("tools_crypto_intelligence", self.tool_nodes["crypto_intelligence"])
 
         # Add other nodes
         workflow.add_node("Bull Researcher", bull_researcher_node)
@@ -156,11 +168,29 @@ class GraphSetup:
             )
             workflow.add_edge(current_tools, current_analyst)
 
-            # Connect to next analyst or to Bull Researcher if this is the last analyst
+            # Connect to next analyst or the optional crypto-native cross-check.
             if i < len(plan.specs) - 1:
                 workflow.add_edge(current_clear, plan.specs[i + 1].agent_node)
-            else:
+            elif not has_crypto_intelligence:
                 workflow.add_edge(current_clear, "Bull Researcher")
+            else:
+                workflow.add_conditional_edges(
+                    current_clear,
+                    self.conditional_logic.should_run_crypto_intelligence,
+                    {
+                        "Crypto Intelligence Analyst": "Crypto Intelligence Analyst",
+                        "Bull Researcher": "Bull Researcher",
+                    },
+                )
+
+        if has_crypto_intelligence:
+            workflow.add_conditional_edges(
+                "Crypto Intelligence Analyst",
+                self.conditional_logic.should_continue_crypto_intelligence,
+                ["tools_crypto_intelligence", "Msg Clear Crypto Intelligence"],
+            )
+            workflow.add_edge("tools_crypto_intelligence", "Crypto Intelligence Analyst")
+            workflow.add_edge("Msg Clear Crypto Intelligence", "Bull Researcher")
 
         # Both research-debate edges share the complete DEBATE_PATH_MAP (#1088).
         for debate_node in ("Bull Researcher", "Bear Researcher"):

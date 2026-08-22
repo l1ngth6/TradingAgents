@@ -32,10 +32,13 @@ from cli.utils import (
     confirm_ollama_endpoint,
     detect_asset_type,
     ensure_api_key,
+    get_optional_heatmap_input,
     get_ticker,
     prompt_openai_compatible_url,
     resolve_backend_url,
     select_analysts,
+    select_crypto_intelligence_mode,
+    select_decision_horizon,
     select_deep_thinking_agent,
     select_llm_provider,
     select_research_depth,
@@ -89,6 +92,7 @@ class MessageBuffer:
         "social": "Sentiment Analyst",
         "news": "News Analyst",
         "fundamentals": "Fundamentals Analyst",
+        "crypto": "Crypto Intelligence Analyst",
     }
 
     # Report section mapping: section -> (analyst_key for filtering, finalizing_agent)
@@ -99,6 +103,7 @@ class MessageBuffer:
         "sentiment_report": ("social", "Sentiment Analyst"),
         "news_report": ("news", "News Analyst"),
         "fundamentals_report": ("fundamentals", "Fundamentals Analyst"),
+        "crypto_intelligence_report": ("crypto", "Crypto Intelligence Analyst"),
         "investment_plan": (None, "Research Manager"),
         "trader_investment_plan": (None, "Trader"),
         "final_trade_decision": (None, "Portfolio Manager"),
@@ -115,13 +120,15 @@ class MessageBuffer:
         self.selected_analysts = []
         self._processed_message_ids = set()
 
-    def init_for_analysis(self, selected_analysts):
+    def init_for_analysis(self, selected_analysts, include_crypto_intelligence=False):
         """Initialize agent status and report sections based on selected analysts.
 
         Args:
             selected_analysts: List of analyst type strings (e.g., ["market", "news"])
         """
         self.selected_analysts = [a.lower() for a in selected_analysts]
+        if include_crypto_intelligence:
+            self.selected_analysts.append("crypto")
 
         # Build agent_status dynamically
         self.agent_status = {}
@@ -207,6 +214,7 @@ class MessageBuffer:
                 "sentiment_report": "Social Sentiment",
                 "news_report": "News Analysis",
                 "fundamentals_report": "Fundamentals Analysis",
+                "crypto_intelligence_report": "Crypto Intelligence (Auxiliary)",
                 "investment_plan": "Research Team Decision",
                 "trader_investment_plan": "Trading Team Plan",
                 "final_trade_decision": "Portfolio Management Decision",
@@ -222,7 +230,7 @@ class MessageBuffer:
         report_parts = []
 
         # Analyst Team Reports - use .get() to handle missing sections
-        analyst_sections = ["market_report", "sentiment_report", "news_report", "fundamentals_report"]
+        analyst_sections = ["market_report", "sentiment_report", "news_report", "fundamentals_report", "crypto_intelligence_report"]
         if any(self.report_sections.get(section) for section in analyst_sections):
             report_parts.append("## Analyst Team Reports")
             if self.report_sections.get("market_report"):
@@ -240,6 +248,11 @@ class MessageBuffer:
             if self.report_sections.get("fundamentals_report"):
                 report_parts.append(
                     f"### Fundamentals Analysis\n{self.report_sections['fundamentals_report']}"
+                )
+            if self.report_sections.get("crypto_intelligence_report"):
+                report_parts.append(
+                    "### Crypto Intelligence (Auxiliary)\n"
+                    f"{self.report_sections['crypto_intelligence_report']}"
                 )
 
         # Research Team Reports
@@ -574,7 +587,32 @@ def get_user_selections():
     )
     analysis_date = get_analysis_date(asset_type)
 
-    # Step 3: Output language (skipped when set via TRADINGAGENTS_OUTPUT_LANGUAGE)
+    console.print(
+        create_question_box(
+            "Step 3: Decision Horizon",
+            "Choose the time window for the thesis, trade plan, risk triggers, and outcome review",
+            "Monthly (2-4 weeks)",
+        )
+    )
+    decision_horizon = select_decision_horizon()
+
+    crypto_intelligence_mode = "disabled"
+    heatmap_input = ""
+    if asset_type.value == "crypto":
+        console.print(
+            create_question_box(
+                "Step 4: Crypto Intelligence",
+                "Choose whether the auxiliary crypto-native report is disabled, shadow-only, or advisory",
+                "Shadow",
+            )
+        )
+        crypto_intelligence_mode = select_crypto_intelligence_mode()
+        if crypto_intelligence_mode != "disabled":
+            heatmap_input = get_optional_heatmap_input()
+
+    next_step = 5 if asset_type.value == "crypto" else 4
+
+    # Output language (skipped when set via TRADINGAGENTS_OUTPUT_LANGUAGE)
     if os.environ.get("TRADINGAGENTS_OUTPUT_LANGUAGE"):
         output_language = DEFAULT_CONFIG["output_language"]
         console.print(
@@ -583,16 +621,16 @@ def get_user_selections():
     else:
         console.print(
             create_question_box(
-                "Step 3: Output Language",
+                f"Step {next_step}: Output Language",
                 "Select the language for analyst reports and final decision"
             )
         )
         output_language = ask_output_language()
 
-    # Step 4: Select analysts
+    # Select analysts
     console.print(
         create_question_box(
-            "Step 4: Analysts Team", "Select your LLM analyst agents for the analysis"
+            f"Step {next_step + 1}: Analysts Team", "Select your LLM analyst agents for the analysis"
         )
     )
     selected_analysts = select_analysts(asset_type)
@@ -600,7 +638,7 @@ def get_user_selections():
         f"[green]Selected analysts:[/green] {', '.join(analyst.value for analyst in selected_analysts)}"
     )
 
-    # Step 5: Research depth (skipped when both round counts are set via env).
+    # Research depth (skipped when both round counts are set via env).
     # Research depth maps to the debate + risk round counts; when both are
     # supplied through TRADINGAGENTS_MAX_DEBATE_ROUNDS / _MAX_RISK_ROUNDS we keep
     # the run non-interactive and honor the env values (#977).
@@ -617,12 +655,12 @@ def get_user_selections():
     else:
         console.print(
             create_question_box(
-                "Step 5: Research Depth", "Select your research depth level"
+                f"Step {next_step + 2}: Research Depth", "Select your research depth level"
             )
         )
         selected_research_depth = select_research_depth()
 
-    # Step 6: LLM Provider (skipped when set via TRADINGAGENTS_LLM_PROVIDER).
+    # LLM Provider (skipped when set via TRADINGAGENTS_LLM_PROVIDER).
     # The backend URL comes from TRADINGAGENTS_LLM_BACKEND_URL when set,
     # otherwise the provider's default endpoint — the same value the menu
     # would have picked.
@@ -639,7 +677,7 @@ def get_user_selections():
     else:
         console.print(
             create_question_box(
-                "Step 6: LLM Provider", "Select your LLM provider"
+                f"Step {next_step + 3}: LLM Provider", "Select your LLM provider"
             )
         )
         selected_llm_provider, backend_url = select_llm_provider()
@@ -675,7 +713,7 @@ def get_user_selections():
         # doesn't fail later at the first API call.
         ensure_api_key(selected_llm_provider)
 
-    # Step 7: Thinking agents (skipped when either model is set via environment)
+    # Thinking agents (skipped when either model is set via environment)
     if os.environ.get("TRADINGAGENTS_QUICK_THINK_LLM") or os.environ.get("TRADINGAGENTS_DEEP_THINK_LLM"):
         selected_shallow_thinker = DEFAULT_CONFIG["quick_think_llm"]
         selected_deep_thinker = DEFAULT_CONFIG["deep_think_llm"]
@@ -686,13 +724,13 @@ def get_user_selections():
     else:
         console.print(
             create_question_box(
-                "Step 7: Thinking Agents", "Select your thinking agents for analysis"
+                f"Step {next_step + 4}: Thinking Agents", "Select your thinking agents for analysis"
             )
         )
         selected_shallow_thinker = select_shallow_thinking_agent(selected_llm_provider)
         selected_deep_thinker = select_deep_thinking_agent(selected_llm_provider)
 
-    # Step 8: Provider-specific reasoning/thinking configuration. Each knob is
+    # Provider-specific reasoning/thinking configuration. Each knob is
     # settable via its TRADINGAGENTS_* env var; when that var is set (or the
     # provider itself came from env) the prompt is skipped and the configured
     # value is used — same env-precedence rule as the steps above. None = each
@@ -709,19 +747,19 @@ def get_user_selections():
     elif provider_lower == "google":
         thinking_level = thinking_value_or_prompt(
             "TRADINGAGENTS_GOOGLE_THINKING_LEVEL", "google_thinking_level",
-            "Gemini thinking mode", "Step 8: Thinking Mode",
+            "Gemini thinking mode", f"Step {next_step + 5}: Thinking Mode",
             "Configure Gemini thinking mode", ask_gemini_thinking_config,
         )
     elif provider_lower in {"openai", "openai_compatible"}:
         reasoning_effort = thinking_value_or_prompt(
             "TRADINGAGENTS_OPENAI_REASONING_EFFORT", "openai_reasoning_effort",
-            "Reasoning effort", "Step 8: Reasoning Effort",
+            "Reasoning effort", f"Step {next_step + 5}: Reasoning Effort",
             "Configure Responses API reasoning effort level", ask_openai_reasoning_effort,
         )
     elif provider_lower == "anthropic":
         anthropic_effort = thinking_value_or_prompt(
             "TRADINGAGENTS_ANTHROPIC_EFFORT", "anthropic_effort",
-            "Claude effort", "Step 8: Effort Level",
+            "Claude effort", f"Step {next_step + 5}: Effort Level",
             "Configure Claude effort level", ask_anthropic_effort,
         )
 
@@ -729,6 +767,9 @@ def get_user_selections():
         "ticker": selected_ticker,
         "asset_type": asset_type.value,
         "analysis_date": analysis_date,
+        "decision_horizon": decision_horizon,
+        "crypto_intelligence_mode": crypto_intelligence_mode,
+        "heatmap_input": heatmap_input,
         "analysts": selected_analysts,
         "research_depth": selected_research_depth,
         "llm_provider": selected_llm_provider.lower(),
@@ -748,7 +789,8 @@ def _analysis_date_guidance(asset_type="stock") -> str:
     if getattr(asset_type, "value", asset_type) == "crypto":
         guidance += (
             ". Use the UTC calendar date: daily candles roll at 00:00 UTC "
-            "(08:00 Beijing time)"
+            "(08:00 Beijing time). The latest UTC date is allowed; live information "
+            "will be current, while technical indicators use only the prior fully closed candle"
         )
     return guidance
 
@@ -800,6 +842,8 @@ def display_complete_report(final_state):
         analysts.append(("News Analyst", final_state["news_report"]))
     if final_state.get("fundamentals_report"):
         analysts.append(("Fundamentals Analyst", final_state["fundamentals_report"]))
+    if final_state.get("crypto_intelligence_report"):
+        analysts.append(("Crypto Intelligence Analyst (Auxiliary)", final_state["crypto_intelligence_report"]))
     if analysts:
         console.print(Panel("[bold]I. Analyst Team Reports[/bold]", border_style="cyan"))
         for title, content in analysts:
@@ -909,12 +953,21 @@ def update_analyst_statuses(message_buffer, chunk, wall_time_tracker=None):
             message_buffer.update_agent_status(agent_name, "pending")
 
     # When all analysts complete, transition research team to in_progress
-    if (
-        not found_active
-        and selected
-        and message_buffer.agent_status.get("Bull Researcher") == "pending"
-    ):
-        message_buffer.update_agent_status("Bull Researcher", "in_progress")
+    if not found_active and selected:
+        crypto_name = "Crypto Intelligence Analyst"
+        if crypto_name in message_buffer.agent_status:
+            crypto_report = chunk.get("crypto_intelligence_report")
+            if crypto_report:
+                message_buffer.update_report_section(
+                    "crypto_intelligence_report", crypto_report
+                )
+                message_buffer.update_agent_status(crypto_name, "completed")
+                if message_buffer.agent_status.get("Bull Researcher") == "pending":
+                    message_buffer.update_agent_status("Bull Researcher", "in_progress")
+            elif message_buffer.agent_status.get(crypto_name) != "completed":
+                message_buffer.update_agent_status(crypto_name, "in_progress")
+        elif message_buffer.agent_status.get("Bull Researcher") == "pending":
+            message_buffer.update_agent_status("Bull Researcher", "in_progress")
 
 def extract_content_string(content):
     """Extract string content from various message formats.
@@ -1014,6 +1067,10 @@ def _build_run_config(selections: dict, checkpoint: bool | None) -> dict:
     config["openai_reasoning_effort"] = selections.get("openai_reasoning_effort")
     config["anthropic_effort"] = selections.get("anthropic_effort")
     config["output_language"] = selections.get("output_language", "English")
+    config["decision_horizon"] = selections.get("decision_horizon", "monthly")
+    config["crypto_intelligence_mode"] = selections.get(
+        "crypto_intelligence_mode", "disabled"
+    )
     # --checkpoint/--no-checkpoint overrides only when explicitly given; omitting
     # the flag preserves TRADINGAGENTS_CHECKPOINT_ENABLED / the default (#976).
     if checkpoint is not None:
@@ -1045,7 +1102,14 @@ def run_analysis(checkpoint: bool | None = None):
     )
 
     # Initialize message buffer with selected analysts
-    message_buffer.init_for_analysis(selected_analyst_keys)
+    include_crypto_intelligence = (
+        selections["asset_type"] == "crypto"
+        and selections["crypto_intelligence_mode"] != "disabled"
+    )
+    message_buffer.init_for_analysis(
+        selected_analyst_keys,
+        include_crypto_intelligence=include_crypto_intelligence,
+    )
 
     # Track start time for elapsed display
     start_time = time.time()
@@ -1113,6 +1177,14 @@ def run_analysis(checkpoint: bool | None = None):
             "System", f"Analysis date: {selections['analysis_date']}"
         )
         message_buffer.add_message(
+            "System", f"Decision horizon: {selections['decision_horizon']}"
+        )
+        if selections["asset_type"] == "crypto":
+            message_buffer.add_message(
+                "System",
+                f"Crypto intelligence mode: {selections['crypto_intelligence_mode']}",
+            )
+        message_buffer.add_message(
             "System",
             f"Selected analysts: {', '.join(analyst.value for analyst in selections['analysts'])}",
         )
@@ -1134,14 +1206,18 @@ def run_analysis(checkpoint: bool | None = None):
         # Resolve the instrument identity once here so all agents anchor to
         # the real company (#814); the CLI builds state directly rather than
         # going through propagate(), so this must happen on the CLI path too.
-        instrument_context = graph.resolve_instrument_context(
-            selections["ticker"], selections["asset_type"]
-        )
-        init_agent_state = graph.propagator.create_initial_state(
+        init_agent_state = graph.create_initial_state(
             selections["ticker"],
             selections["analysis_date"],
             asset_type=selections["asset_type"],
-            instrument_context=instrument_context,
+            decision_horizon=selections["decision_horizon"],
+            crypto_intelligence_mode=selections["crypto_intelligence_mode"],
+            heatmap_input=selections["heatmap_input"],
+        )
+        message_buffer.add_message(
+            "System",
+            f"Live information cutoff: {init_agent_state['analysis_as_of']}; "
+            f"completed daily candle cutoff: {init_agent_state['completed_daily_candle_date']}",
         )
         # Pass callbacks to graph config for tool execution tracking
         # (LLM tracking is handled separately via LLM constructor)

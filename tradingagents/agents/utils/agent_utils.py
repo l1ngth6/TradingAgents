@@ -11,6 +11,9 @@ from tradingagents.agents.utils.core_stock_tools import get_stock_data
 from tradingagents.agents.utils.crypto_data_tools import (
     get_crypto_derivatives,
     get_crypto_fear_greed,
+    get_crypto_liquidations,
+    get_crypto_onchain,
+    get_crypto_options,
 )
 from tradingagents.agents.utils.fundamental_data_tools import (
     get_balance_sheet,
@@ -34,6 +37,9 @@ __all__ = [
     "get_stock_data",
     "get_crypto_derivatives",
     "get_crypto_fear_greed",
+    "get_crypto_options",
+    "get_crypto_onchain",
+    "get_crypto_liquidations",
     "get_indicators",
     "get_fundamentals",
     "get_balance_sheet",
@@ -48,6 +54,8 @@ __all__ = [
     "build_instrument_context",
     "resolve_instrument_identity",
     "get_instrument_context_from_state",
+    "get_crypto_advisory_context",
+    "get_decision_context_from_state",
     "get_language_instruction",
     "create_msg_delete",
 ]
@@ -185,11 +193,64 @@ def get_instrument_context_from_state(state: Mapping[str, Any]) -> str:
     consumer is never forced to make a yfinance call mid-graph.
     """
     context = state.get("instrument_context")
-    if isinstance(context, str) and context.strip():
-        return context
-    return build_instrument_context(
-        str(state["company_of_interest"]),
-        state.get("asset_type", "stock"),
+    if not isinstance(context, str) or not context.strip():
+        context = build_instrument_context(
+            str(state["company_of_interest"]),
+            state.get("asset_type", "stock"),
+        )
+    return f"{context} {get_decision_context_from_state(state)}".strip()
+
+
+_HORIZON_LABELS = {
+    "weekly": "Weekly (3-7 calendar days)",
+    "monthly": "Monthly (2-4 weeks)",
+    "strategic": "Strategic (1-3 months)",
+}
+
+
+def get_decision_context_from_state(state: Mapping[str, Any]) -> str:
+    """Return invariant horizon and market-time rules shared by every agent."""
+    horizon = str(state.get("decision_horizon", "monthly")).strip().lower()
+    label = _HORIZON_LABELS.get(horizon, _HORIZON_LABELS["monthly"])
+    as_of = state.get("analysis_as_of") or state.get("trade_date", "unknown")
+    completed = state.get("completed_daily_candle_date") or state.get("trade_date", "unknown")
+    text = (
+        f"The selected decision horizon is {label}; keep every thesis, catalyst, "
+        f"target, risk trigger, and outcome window within that horizon. Information "
+        f"may be observed through {as_of}. Completed daily OHLCV and all candle-based "
+        f"technical indicators are capped at {completed}. Never call a live price a "
+        "daily close, and never treat an unfinished candle as a confirmed close, "
+        "breakout, volume confirmation, or candlestick pattern."
+    )
+    portfolio = state.get("portfolio_context")
+    if isinstance(portfolio, Mapping) and portfolio:
+        values = "; ".join(f"{key}={value}" for key, value in portfolio.items() if value not in (None, ""))
+        if values:
+            text += f" User-supplied portfolio context: {values}."
+    else:
+        text += (
+            " No current position, cost basis, leverage, or risk budget was supplied. "
+            "State assumptions explicitly and do not invent an existing position or an "
+            "arbitrary fraction to buy or sell."
+        )
+    return text
+
+
+def get_crypto_advisory_context(state: Mapping[str, Any], max_chars: int = 2400) -> str:
+    """Expose only a restrained crypto cross-check in Advisory mode.
+
+    Shadow reports remain persisted for the user but are deliberately invisible
+    to downstream decision agents.
+    """
+    if state.get("crypto_intelligence_mode") != "advisory":
+        return ""
+    report = str(state.get("crypto_intelligence_report") or "").strip()
+    if not report:
+        return ""
+    summary = report.split("## Detailed evidence", 1)[0].strip()[:max_chars]
+    return (
+        "\nAuxiliary crypto-native cross-validation (never a standalone direction "
+        "signal and insufficient by itself to change the rating):\n" + summary
     )
 
 
@@ -218,5 +279,3 @@ def create_msg_delete():
         return {"messages": removal_operations + [placeholder]}
 
     return delete_messages
-
-

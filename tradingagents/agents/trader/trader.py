@@ -33,6 +33,9 @@ def create_trader(llm):
                     "You are a trading agent analyzing market data to make investment decisions. "
                     "Based on your analysis, provide a specific recommendation to buy, sell, or hold. "
                     "Anchor your reasoning in the analysts' reports and the research plan. "
+                    "Keep an unconditional hard stop separate from a conditional risk trigger, "
+                    "confirmation interval, and action on trigger. If portfolio context is absent, "
+                    "do not invent a current holding or arbitrary fraction to trade. "
                     + NO_EXTERNAL_TOOLS
                     + get_language_instruction()
                 ),

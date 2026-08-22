@@ -196,6 +196,62 @@ def select_research_depth() -> int:
     return choice
 
 
+def select_decision_horizon() -> str:
+    """Choose the outcome window independently from research depth."""
+    choice = questionary.select(
+        "Select the [Decision Horizon]:",
+        choices=[
+            questionary.Choice("Monthly — 2-4 weeks (recommended)", value="monthly"),
+            questionary.Choice("Weekly — 3-7 calendar days", value="weekly"),
+            questionary.Choice("Strategic — 1-3 months", value="strategic"),
+        ],
+        instruction="\n- Controls thesis, catalyst, risk, target, and outcome-evaluation windows",
+    ).ask()
+    if choice is None:
+        console.print("\n[red]No decision horizon selected. Exiting...[/red]")
+        exit(1)
+    return choice
+
+
+def select_crypto_intelligence_mode() -> str:
+    """Choose how the auxiliary crypto-native report participates in this task."""
+    choice = questionary.select(
+        "Select the [Crypto Intelligence Mode]:",
+        choices=[
+            questionary.Choice(
+                "Shadow — save the report but hide it from decision agents (recommended)",
+                value="shadow",
+            ),
+            questionary.Choice(
+                "Advisory — pass only a restrained cross-validation summary downstream",
+                value="advisory",
+            ),
+            questionary.Choice("Disabled — skip crypto-native enrichment", value="disabled"),
+        ],
+        instruction="\n- The agent never replaces the existing analysis workflow",
+    ).ask()
+    if choice is None:
+        console.print("\n[red]No crypto intelligence mode selected. Exiting...[/red]")
+        exit(1)
+    return choice
+
+
+def get_optional_heatmap_input() -> str:
+    """Accept a local image path or public HTTPS image URL, or blank."""
+    value = questionary.text(
+        "Optional liquidation heatmap image path or HTTPS URL (blank to skip):",
+        validate=lambda x: (
+            not x.strip()
+            or x.strip().lower().startswith("https://")
+            or Path(x.strip()).expanduser().is_file()
+            or "Enter an existing local image file, a public HTTPS URL, or leave blank."
+        ),
+    ).ask()
+    if value is None:
+        return ""
+    return value.strip()
+
+
 # Mainstream OpenRouter chat-LLM provider namespaces. We surface the newest
 # models from these rather than the universal-newest, which is dominated by
 # niche/experimental releases. These are the general-purpose chat providers;

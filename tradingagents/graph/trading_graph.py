@@ -1,5 +1,6 @@
 # TradingAgents/graph/trading_graph.py
 
+import hashlib
 import json
 import logging
 import os
@@ -16,6 +17,9 @@ from tradingagents.agents.utils.agent_utils import (
     get_balance_sheet,
     get_cashflow,
     get_crypto_derivatives,
+    get_crypto_liquidations,
+    get_crypto_onchain,
+    get_crypto_options,
     get_fundamentals,
     get_global_news,
     get_income_statement,
@@ -34,7 +38,8 @@ from tradingagents.dataflows.utils import safe_ticker_component
 from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.llm_clients import create_llm_client
 from tradingagents.llm_clients.agent_overrides import build_agent_llm_overrides
-from tradingagents.market_time import uses_utc_market_day, validate_analysis_date
+from tradingagents.heatmap_input import HeatmapInputError, stage_heatmap_input
+from tradingagents.market_time import analysis_cutoffs, uses_utc_market_day, validate_analysis_date
 from tradingagents.reporting import write_report_tree
 
 from .checkpointer import checkpoint_step, clear_checkpoint, get_checkpointer, thread_id
@@ -45,6 +50,21 @@ from .setup import GraphSetup
 from .signal_processing import SignalProcessor
 
 logger = logging.getLogger(__name__)
+
+VALID_DECISION_HORIZONS = frozenset({"weekly", "monthly", "strategic"})
+VALID_CRYPTO_INTELLIGENCE_MODES = frozenset({"disabled", "shadow", "advisory"})
+
+
+def _outcome_days_from_decision(decision: str) -> int:
+    """Map the persisted fixed horizon label to an outcome-review window."""
+    lowered = str(decision).lower()
+    if "weekly (3-7 calendar days)" in lowered:
+        return 5
+    if "strategic (1-3 months)" in lowered:
+        return 63
+    if "monthly (2-4 weeks)" in lowered:
+        return 21
+    return 5  # legacy entries created before horizons were persisted
 
 
 def _coerce_max_retries(value):
@@ -203,9 +223,14 @@ class TradingAgentsGraph:
                     # LLM and required by its prompt; must be executable here or
                     # the call fails and the model reports it "unavailable").
                     get_verified_market_snapshot,
-                    # Crypto-only, keyless enrichment. The market prompt calls
-                    # it only when state.asset_type == "crypto".
+                ]
+            ),
+            "crypto_intelligence": ToolNode(
+                [
                     get_crypto_derivatives,
+                    get_crypto_options,
+                    get_crypto_onchain,
+                    get_crypto_liquidations,
                 ]
             ),
             "social": ToolNode(
@@ -271,7 +296,9 @@ class TradingAgentsGraph:
 
         try:
             start = datetime.strptime(trade_date, "%Y-%m-%d")
-            end = start + timedelta(days=holding_days + 7)  # buffer for weekends/holidays
+            # ``holding_days`` is measured in observed market rows. Allow enough
+            # calendar time for weekends and holidays at monthly/strategic horizons.
+            end = start + timedelta(days=int(holding_days * 1.6) + 7)
             end_str = end.strftime("%Y-%m-%d")
 
             # Normalize so the realized-return lookup hits the same instrument
@@ -280,10 +307,10 @@ class TradingAgentsGraph:
             stock = yf.Ticker(normalize_symbol(ticker)).history(start=trade_date, end=end_str)
             bench = yf.Ticker(benchmark).history(start=trade_date, end=end_str)
 
-            if len(stock) < 2 or len(bench) < 2:
+            if len(stock) <= holding_days or len(bench) <= holding_days:
                 return None, None, None
 
-            actual_days = min(holding_days, len(stock) - 1, len(bench) - 1)
+            actual_days = holding_days
             raw = float(
                 (stock["Close"].iloc[actual_days] - stock["Close"].iloc[0])
                 / stock["Close"].iloc[0]
@@ -318,8 +345,12 @@ class TradingAgentsGraph:
         benchmark = self._resolve_benchmark(ticker)
         updates = []
         for entry in pending:
+            holding_days = _outcome_days_from_decision(entry.get("decision", ""))
             raw, alpha, days = self._fetch_returns(
-                ticker, entry["date"], benchmark=benchmark,
+                ticker,
+                entry["date"],
+                holding_days=holding_days,
+                benchmark=benchmark,
             )
             if raw is None:
                 continue  # price not available yet — try again next run
@@ -353,21 +384,45 @@ class TradingAgentsGraph:
         identity = resolve_instrument_identity(ticker)
         return build_instrument_context(ticker, asset_type, identity)
 
-    def _run_signature(self, asset_type: str) -> str:
+    def _run_signature(
+        self,
+        asset_type: str,
+        decision_horizon: str | None = None,
+        crypto_intelligence_mode: str | None = None,
+        heatmap_input: str = "",
+    ) -> str:
         """Graph-shape inputs that must invalidate a checkpoint if changed.
 
         Keyed into the checkpoint thread ID so a resume under a different analyst
         selection, debate/risk depth, or asset mode starts fresh instead of
         silently continuing the previous graph (#1089).
         """
+        heatmap_signature = (
+            hashlib.sha256(heatmap_input.encode("utf-8")).hexdigest()[:12]
+            if heatmap_input
+            else "none"
+        )
         return "|".join([
             "analysts=" + ",".join(self.selected_analysts),
             f"debate={self.config['max_debate_rounds']}",
             f"risk={self.config['max_risk_discuss_rounds']}",
             f"asset={asset_type}",
+            f"horizon={decision_horizon or self.config.get('decision_horizon', 'monthly')}",
+            f"crypto_mode={crypto_intelligence_mode or self.config.get('crypto_intelligence_mode', 'disabled')}",
+            f"heatmap={heatmap_signature}",
         ])
 
-    def propagate(self, company_name, trade_date, asset_type: str = "stock"):
+    def propagate(
+        self,
+        company_name,
+        trade_date,
+        asset_type: str = "stock",
+        *,
+        decision_horizon: str | None = None,
+        crypto_intelligence_mode: str | None = None,
+        heatmap_input: str = "",
+        portfolio_context: dict[str, Any] | None = None,
+    ):
         """Run the trading agents graph for a company on a specific date.
 
         ``asset_type`` selects between the stock pipeline (default) and the
@@ -382,6 +437,19 @@ class TradingAgentsGraph:
         # calls just as the CLI does; historical dates are unchanged.
         if uses_utc_market_day(asset_type):
             validate_analysis_date(trade_date, asset_type)
+
+        decision_horizon = decision_horizon or self.config.get("decision_horizon", "monthly")
+        crypto_intelligence_mode = crypto_intelligence_mode or self.config.get(
+            "crypto_intelligence_mode", "disabled"
+        )
+        if decision_horizon not in VALID_DECISION_HORIZONS:
+            raise ValueError(f"decision_horizon must be one of {sorted(VALID_DECISION_HORIZONS)}")
+        if crypto_intelligence_mode not in VALID_CRYPTO_INTELLIGENCE_MODES:
+            raise ValueError(
+                "crypto_intelligence_mode must be disabled, shadow, or advisory"
+            )
+        if asset_type != "crypto":
+            crypto_intelligence_mode = "disabled"
 
         self.ticker = company_name
 
@@ -398,7 +466,12 @@ class TradingAgentsGraph:
 
             step = checkpoint_step(
                 self.config["data_cache_dir"], company_name, str(trade_date),
-                self._run_signature(asset_type),
+                self._run_signature(
+                    asset_type,
+                    decision_horizon,
+                    crypto_intelligence_mode,
+                    heatmap_input,
+                ),
             )
             if step is not None:
                 logger.info(
@@ -408,7 +481,15 @@ class TradingAgentsGraph:
                 logger.info("Starting fresh for %s on %s", company_name, trade_date)
 
         try:
-            return self._run_graph(company_name, trade_date, asset_type=asset_type)
+            return self._run_graph(
+                company_name,
+                trade_date,
+                asset_type=asset_type,
+                decision_horizon=decision_horizon,
+                crypto_intelligence_mode=crypto_intelligence_mode,
+                heatmap_input=heatmap_input,
+                portfolio_context=portfolio_context,
+            )
         finally:
             if self._checkpointer_ctx is not None:
                 self._checkpointer_ctx.__exit__(None, None, None)
@@ -430,25 +511,94 @@ class TradingAgentsGraph:
             )
         return write_report_tree(final_state, ticker, save_path)
 
-    def _run_graph(self, company_name, trade_date, asset_type: str = "stock"):
-        """Execute the graph and write the resulting state to disk and memory log."""
-        # Initialize state — inject memory log context for PM and the
-        # deterministically resolved instrument identity for all agents.
-        past_context = self.memory_log.get_past_context(company_name)
+    def create_initial_state(
+        self,
+        company_name: str,
+        trade_date: str,
+        *,
+        asset_type: str = "stock",
+        decision_horizon: str = "monthly",
+        crypto_intelligence_mode: str = "disabled",
+        heatmap_input: str = "",
+        portfolio_context: dict[str, Any] | None = None,
+        past_context: str = "",
+    ) -> dict[str, Any]:
+        """Build a task state with deterministic time cutoffs and image staging."""
+        if decision_horizon not in VALID_DECISION_HORIZONS:
+            raise ValueError(f"decision_horizon must be one of {sorted(VALID_DECISION_HORIZONS)}")
+        if crypto_intelligence_mode not in VALID_CRYPTO_INTELLIGENCE_MODES:
+            raise ValueError(
+                "crypto_intelligence_mode must be disabled, shadow, or advisory"
+            )
+        if asset_type != "crypto":
+            crypto_intelligence_mode = "disabled"
+        cutoffs = analysis_cutoffs(trade_date, asset_type)
+        heatmap_artifact = {}
+        if asset_type == "crypto" and crypto_intelligence_mode != "disabled" and heatmap_input:
+            try:
+                heatmap_artifact = stage_heatmap_input(
+                    heatmap_input,
+                    self.config["data_cache_dir"],
+                    str(trade_date),
+                )
+            except HeatmapInputError as exc:
+                logger.warning("Optional liquidation heatmap skipped: %s", exc)
+                heatmap_artifact = {"error": str(exc), "original_input": heatmap_input}
         instrument_context = self.resolve_instrument_context(company_name, asset_type)
-        init_agent_state = self.propagator.create_initial_state(
+        return self.propagator.create_initial_state(
             company_name,
             trade_date,
             asset_type=asset_type,
             past_context=past_context,
             instrument_context=instrument_context,
+            analysis_as_of=cutoffs.analysis_as_of,
+            completed_daily_candle_date=cutoffs.completed_daily_candle_date,
+            decision_horizon=decision_horizon,
+            crypto_intelligence_mode=crypto_intelligence_mode,
+            heatmap_input=heatmap_input,
+            heatmap_artifact=heatmap_artifact,
+            portfolio_context=portfolio_context,
+        )
+
+    def _run_graph(
+        self,
+        company_name,
+        trade_date,
+        asset_type: str = "stock",
+        decision_horizon: str = "monthly",
+        crypto_intelligence_mode: str = "disabled",
+        heatmap_input: str = "",
+        portfolio_context: dict[str, Any] | None = None,
+    ):
+        """Execute the graph and write the resulting state to disk and memory log."""
+        # Initialize state — inject memory log context for PM and the
+        # deterministically resolved instrument identity for all agents.
+        past_context = self.memory_log.get_past_context(company_name)
+        init_agent_state = self.create_initial_state(
+            company_name,
+            trade_date,
+            asset_type=asset_type,
+            past_context=past_context,
+            decision_horizon=decision_horizon,
+            crypto_intelligence_mode=crypto_intelligence_mode,
+            heatmap_input=heatmap_input,
+            portfolio_context=portfolio_context,
         )
         args = self.propagator.get_graph_args()
 
         # Inject thread_id so same ticker+date+graph-shape resumes; a different
         # date or graph shape starts fresh (#1089).
         if self.config.get("checkpoint_enabled"):
-            tid = thread_id(company_name, str(trade_date), self._run_signature(asset_type))
+            tid = thread_id(
+                company_name,
+                str(trade_date),
+                self._run_signature(
+                    asset_type,
+                    decision_horizon,
+                    crypto_intelligence_mode,
+                    heatmap_input,
+                ),
+            )
             args.setdefault("config", {}).setdefault("configurable", {})["thread_id"] = tid
 
         if self.debug:
@@ -490,7 +640,12 @@ class TradingAgentsGraph:
         if self.config.get("checkpoint_enabled"):
             clear_checkpoint(
                 self.config["data_cache_dir"], company_name, str(trade_date),
-                self._run_signature(asset_type),
+                self._run_signature(
+                    asset_type,
+                    decision_horizon,
+                    crypto_intelligence_mode,
+                    heatmap_input,
+                ),
             )
 
         return final_state, self.process_signal(final_state["final_trade_decision"])
@@ -500,10 +655,17 @@ class TradingAgentsGraph:
         self.log_states_dict[str(trade_date)] = {
             "company_of_interest": final_state["company_of_interest"],
             "trade_date": final_state["trade_date"],
+            "analysis_as_of": final_state.get("analysis_as_of"),
+            "completed_daily_candle_date": final_state.get("completed_daily_candle_date"),
+            "decision_horizon": final_state.get("decision_horizon"),
+            "crypto_intelligence_mode": final_state.get("crypto_intelligence_mode"),
+            "heatmap_artifact": final_state.get("heatmap_artifact", {}),
+            "heatmap_visual_report": final_state.get("heatmap_visual_report", ""),
             "market_report": final_state["market_report"],
             "sentiment_report": final_state["sentiment_report"],
             "news_report": final_state["news_report"],
             "fundamentals_report": final_state["fundamentals_report"],
+            "crypto_intelligence_report": final_state.get("crypto_intelligence_report", ""),
             "investment_debate_state": {
                 "bull_history": final_state["investment_debate_state"]["bull_history"],
                 "bear_history": final_state["investment_debate_state"]["bear_history"],

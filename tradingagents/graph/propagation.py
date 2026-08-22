@@ -22,6 +22,13 @@ class Propagator:
         asset_type: str = "stock",
         past_context: str = "",
         instrument_context: str = "",
+        analysis_as_of: str = "",
+        completed_daily_candle_date: str = "",
+        decision_horizon: str = "monthly",
+        crypto_intelligence_mode: str = "disabled",
+        heatmap_input: str = "",
+        heatmap_artifact: dict[str, Any] | None = None,
+        portfolio_context: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Create the initial state for the agent graph.
 
@@ -37,6 +44,14 @@ class Propagator:
             "asset_type": asset_type,
             "instrument_context": instrument_context,
             "trade_date": str(trade_date),
+            "analysis_as_of": analysis_as_of or str(trade_date),
+            "completed_daily_candle_date": completed_daily_candle_date or str(trade_date),
+            "decision_horizon": decision_horizon,
+            "crypto_intelligence_mode": crypto_intelligence_mode,
+            "heatmap_input": heatmap_input,
+            "heatmap_artifact": heatmap_artifact or {},
+            "heatmap_visual_report": "",
+            "portfolio_context": portfolio_context or {},
             "past_context": past_context,
             "investment_debate_state": InvestDebateState(
                 {
@@ -66,6 +81,7 @@ class Propagator:
             "fundamentals_report": "",
             "sentiment_report": "",
             "news_report": "",
+            "crypto_intelligence_report": "",
         }
 
     def get_graph_args(self, callbacks: list | None = None) -> dict[str, Any]:
