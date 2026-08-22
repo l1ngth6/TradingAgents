@@ -305,11 +305,25 @@ the result endpoint used here. Retrieving results may consume Dune credits, but
 this integration does not trigger query execution.
 
 Public queries can be starting points, but they are third-party artifacts whose
-SQL, schema, refresh schedule, or availability can change. Inspect and preferably
-fork them before enabling them. Examples visible at the time of writing are:
+SQL, schema, refresh schedule, parameters, result ordering, or availability can
+change. Inspect and preferably fork them before enabling them.
 
-- On-chain example: [BTC - CEX Netflow (Daily), query 6450054](https://dune.com/queries/6450054)
-- ETF example: [BTC ETF Flows, query 3729167](https://dune.com/queries/3729167)
+> **Current recommendation (reviewed 2026-08-22): leave Dune disabled by
+> default.** The public queries reviewed for this integration were not reliable
+> enough to recommend as ready-to-use sources: query `6450054` returns dataset
+> coverage metadata rather than daily netflow; query `3729167` is stale and has
+> no current result; query `6946196` has the desired daily CEX-netflow shape but
+> currently fails because of an address-type mismatch; and query `6648506` has a
+> compatible ETF-flow schema but its cached result was stale, parameter-dependent,
+> and not reliably date-sorted. Leaving `DUNE_API_KEY` and both query IDs unset is
+> fully supported and does not weaken the main analysis pipeline. Coin Metrics
+> remains the default lightweight on-chain context.
+
+If Dune is enabled later, fork and maintain the query under your own account,
+verify that its latest execution succeeds and is recent, fix its parameters, and
+make the final result compact and explicitly sorted newest-first. Do not treat a
+public query ID as a maintained project default merely because its result schema
+is currently compatible.
 
 For reliable historical filtering, each query should return a timestamp column
 named `date`, `day`, `time`, `timestamp`, `block_date`, or `block_time`. Prefer
@@ -326,7 +340,10 @@ date, fund, inflow_usd, outflow_usd, netflow_usd
 The project retrieves at most 1,000 rows and exposes at most 50 filtered rows to
 the model. A historical run rejects a Dune result that has no recognized
 timestamp column. Supplying only `DUNE_API_KEY` without a query ID does not add
-any Dune evidence.
+any Dune evidence. The integration reads only the most recently cached execution;
+it does not run or refresh the query, choose its parameters, verify freshness, or
+repair its SQL. Dune evidence therefore remains optional cross-validation rather
+than a primary signal.
 
 The CLI can also accept a local liquidation-heatmap image or public HTTPS image
 URL. The selected Crypto Intelligence model reads it once in a dedicated,
