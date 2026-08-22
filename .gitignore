@@ -215,8 +215,19 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
+# macOS metadata
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100/
+.Trashes/
+
 # Cache
 **/data_cache/
+
+# Local scratch files
+tmp/
 
 # Enterprise env file (secrets) and generated run reports
 .env.enterprise

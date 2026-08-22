@@ -18,6 +18,7 @@ import http.client
 import json
 import logging
 import os
+from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 from .config import get_config
@@ -26,6 +27,11 @@ logger = logging.getLogger(__name__)
 
 _RESPONSES_API = "https://api.x.ai/v1/responses"
 _SUPPORTED_PROVIDERS = frozenset({"xai", "openai_compatible"})
+_SEARCH_INSTRUCTIONS = (
+    "You are a bounded X Search worker for financial sentiment analysis. "
+    "Use X Search results as evidence, respect the requested date range, "
+    "include exact source URLs, and never invent posts or engagement metrics."
+)
 
 
 def _responses_url(base_url: str) -> str:
@@ -162,13 +168,17 @@ def fetch_x_sentiment(
     if responses_url is None or api_key is None:
         logger.warning("X Search is enabled but unavailable: %s", provider_or_error)
         return f"<x_search unavailable: {provider_or_error}>"
+    provider = provider_or_error
 
     model = str(config.get("x_search_model") or "grok-4.6").strip()
     thinking_level = str(config.get("x_search_thinking_level") or "medium").strip()
     request_timeout = timeout if timeout is not None else float(config.get("x_search_timeout", 60))
-    max_output_tokens = int(config.get("x_search_max_output_tokens", 8000))
+    search_tool = {"type": "x_search"}
     body = {
         "model": model,
+        # Some otherwise Responses-compatible gateways require a non-empty
+        # top-level instructions field before they will forward the request.
+        "instructions": _SEARCH_INSTRUCTIONS,
         "reasoning": {"effort": thinking_level},
         # xAI documents X Search through the OpenAI Responses-compatible shape.
         # A message array is accepted by xAI and is also the least surprising
@@ -179,15 +189,15 @@ def fetch_x_sentiment(
                 "content": _search_prompt(ticker, start_date, end_date),
             }
         ],
-        "tools": [
-            {
-                "type": "x_search",
-                "from_date": start_date,
-                "to_date": end_date,
-            }
-        ],
-        "max_output_tokens": max_output_tokens,
+        "tools": [search_tool],
     }
+    if provider == "xai":
+        # Native xAI accepts the complete documented X Search shape. Generic
+        # compatible gateways may reject these optional fields even though the
+        # date range remains explicit in the prompt, so use the common subset
+        # for openai_compatible transports.
+        search_tool.update({"from_date": start_date, "to_date": end_date})
+        body["max_output_tokens"] = int(config.get("x_search_max_output_tokens", 8000))
     req = Request(
         responses_url,
         data=json.dumps(body).encode("utf-8"),
@@ -203,19 +213,33 @@ def fetch_x_sentiment(
     try:
         with urlopen(req, timeout=request_timeout) as resp:
             payload = json.loads(resp.read())
+    except HTTPError as exc:
+        error_body = exc.read(4096).decode("utf-8", errors="replace").strip()
+        request_id = exc.headers.get("X-Request-Id") if exc.headers else None
+        logger.warning(
+            "X Search via %s failed for %s: HTTP %s %s "
+            "(request_id=%s, body=%r)",
+            provider,
+            ticker,
+            exc.code,
+            exc.reason,
+            request_id or "unknown",
+            error_body or "<empty>",
+        )
+        return f"<x_search unavailable: HTTP {exc.code}>"
     except (
         OSError,
         http.client.HTTPException,
         json.JSONDecodeError,
         UnicodeDecodeError,
     ) as exc:
-        logger.warning("X Search via %s failed for %s: %s", provider_or_error, ticker, exc)
+        logger.warning("X Search via %s failed for %s: %s", provider, ticker, exc)
         return f"<x_search unavailable: {type(exc).__name__}>"
 
     text = _response_text(payload)
     if not text:
         logger.warning(
-            "X Search via %s returned no usable text for %s", provider_or_error, ticker
+            "X Search via %s returned no usable text for %s", provider, ticker
         )
         return "<x_search unavailable: empty response>"
     return text

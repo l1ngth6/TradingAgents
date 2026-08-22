@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import json
+import logging
+from io import BytesIO
 from unittest.mock import patch
+from urllib.error import HTTPError
 
 import pytest
 
@@ -85,6 +88,7 @@ def test_request_uses_x_search_dates_and_engagement_filter(monkeypatch):
     assert seen["request"].full_url == "https://api.x.ai/v1/responses"
     assert seen["request"].get_header("Authorization") == "Bearer secret-test-key"
     assert request_body["model"] == "grok-test"
+    assert "bounded X Search worker" in request_body["instructions"]
     assert request_body["reasoning"] == {"effort": "low"}
     assert request_body["tools"] == [{
         "type": "x_search", "from_date": "2026-01-08", "to_date": "2026-01-15",
@@ -122,8 +126,10 @@ def test_openai_compatible_reuses_custom_endpoint_and_key(monkeypatch):
     assert seen["url"] == "http://192.168.2.221:8080/v1/responses"
     assert seen["authorization"] == "Bearer custom-endpoint-key"
     assert seen["body"]["model"] == "grok-build-0.1"
+    assert "bounded X Search worker" in seen["body"]["instructions"]
     assert seen["body"]["reasoning"] == {"effort": "medium"}
-    assert seen["body"]["tools"][0]["type"] == "x_search"
+    assert seen["body"]["tools"] == [{"type": "x_search"}]
+    assert "max_output_tokens" not in seen["body"]
     assert result == "Subscription-backed X evidence."
 
 
@@ -150,7 +156,10 @@ def test_x_search_dedicated_endpoint_and_key_override_global_settings(monkeypatc
 
     assert seen["url"] == "http://x-search.example/v1/responses"
     assert seen["authorization"] == "Bearer dedicated-x-key"
+    assert "bounded X Search worker" in seen["body"]["instructions"]
     assert seen["body"]["input"][0]["role"] == "user"
+    assert seen["body"]["tools"] == [{"type": "x_search"}]
+    assert "max_output_tokens" not in seen["body"]
     assert result == "Dedicated transport works."
 
 
@@ -168,6 +177,7 @@ def test_xai_mode_can_use_dedicated_endpoint_and_key(monkeypatch):
     def fake_urlopen(req, timeout):
         seen["url"] = req.full_url
         seen["authorization"] = req.get_header("Authorization")
+        seen["body"] = json.loads(req.data)
         return _Response({"output_text": "Native-compatible gateway works."})
 
     with patch.object(x_search, "urlopen", side_effect=fake_urlopen):
@@ -175,6 +185,11 @@ def test_xai_mode_can_use_dedicated_endpoint_and_key(monkeypatch):
 
     assert seen["url"] == "https://grok-gateway.example/v1/responses"
     assert seen["authorization"] == "Bearer gateway-key"
+    assert "bounded X Search worker" in seen["body"]["instructions"]
+    assert seen["body"]["tools"] == [{
+        "type": "x_search", "from_date": "2026-01-08", "to_date": "2026-01-15",
+    }]
+    assert seen["body"]["max_output_tokens"] == 8000
     assert result == "Native-compatible gateway works."
 
 
@@ -199,3 +214,32 @@ def test_empty_response_degrades_gracefully(monkeypatch):
     with patch.object(x_search, "urlopen", return_value=_Response({"output": []})):
         result = x_search.fetch_x_sentiment("NVDA", "2026-01-08", "2026-01-15")
     assert result == "<x_search unavailable: empty response>"
+
+
+@pytest.mark.unit
+def test_http_error_preserves_status_and_logs_gateway_details(monkeypatch, caplog):
+    monkeypatch.setenv("TRADINGAGENTS_X_SEARCH_API_KEY", "gateway-key")
+    set_config({
+        "x_search_enabled": True,
+        "x_search_provider": "openai_compatible",
+        "x_search_base_url": "http://x-search.example/v1",
+    })
+    error = HTTPError(
+        "http://x-search.example/v1/responses",
+        502,
+        "Bad Gateway",
+        {
+            "Content-Type": "application/json",
+            "X-Request-Id": "request-123",
+        },
+        BytesIO(b'{"error":{"message":"upstream unavailable"}}'),
+    )
+
+    with caplog.at_level(logging.WARNING), patch.object(
+        x_search, "urlopen", side_effect=error
+    ):
+        result = x_search.fetch_x_sentiment("NVDA", "2026-01-08", "2026-01-15")
+
+    assert result == "<x_search unavailable: HTTP 502>"
+    assert "request-123" in caplog.text
+    assert "upstream unavailable" in caplog.text

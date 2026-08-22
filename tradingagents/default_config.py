@@ -130,7 +130,9 @@ DEFAULT_CONFIG = _apply_env_overrides({
     "x_search_model": "grok-4.6",
     "x_search_thinking_level": "medium",
     "x_search_timeout": 60,
-    # Includes both visible output and reasoning tokens returned by xAI.
+    # Native xAI only: includes visible output and reasoning tokens. Generic
+    # compatible gateways receive the common Responses subset without this
+    # optional field because some reject it instead of ignoring it.
     "x_search_max_output_tokens": 8000,
     # Checkpoint/resume: when True, LangGraph saves state after each node
     # so a crashed run can resume from the last successful step.
