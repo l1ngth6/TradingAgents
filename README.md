@@ -267,6 +267,67 @@ The free-first sources are:
 - Alternative.me: the historical Crypto Fear & Greed Index, labeled as a
   Bitcoin-centric broad-market proxy rather than coin-specific sentiment.
 
+#### Optional Coinalyze and Dune configuration
+
+These authenticated sources are optional. Missing credentials, exhausted
+credits, stale query results, or an unavailable endpoint are reported in the
+Crypto Intelligence report and do not abort the main workflow.
+
+**Coinalyze** supplies observed long/short liquidation history, not predicted
+liquidation levels. TradingAgents requests hourly, USD-converted liquidation
+rows for the selected perpetual symbol and currently includes the latest 168
+rows (about seven days) in the analyst context. This is most useful for checking
+whether a recent move actually produced a leveraged long- or short-liquidation
+cascade; it is not a standalone directional signal.
+
+1. Sign in or create a Coinalyze account, then generate a key on the
+   [Coinalyze API key page](https://coinalyze.net/account/api-key/). The
+   [official API documentation](https://api.coinalyze.net/v1/doc/) describes
+   the free API and its current limits.
+2. Set `COINALYZE_API_KEY` in `.env`.
+3. The default symbol is derived as `<BASE>USDT_PERP.A`, for example
+   `BTCUSDT_PERP.A`. Set `COINALYZE_SYMBOL_OVERRIDE` when the desired instrument
+   uses another symbol from Coinalyze's supported-futures list.
+
+**Dune** is deliberately user-defined. TradingAgents does not create or execute
+SQL and does not provide a permanent built-in query. It only retrieves the
+latest already-executed result for up to two query IDs:
+
+- `DUNE_CRYPTO_ONCHAIN_QUERY_ID`: preferably exchange inflow/outflow/netflow or
+  another clearly defined on-chain capital-flow series.
+- `DUNE_CRYPTO_ETF_QUERY_ID`: preferably daily BTC/ETH spot-ETF flow data.
+
+Create a Dune account from the
+[Dune APIs & Connectors page](https://dune.com/apis-and-connectors), then follow
+the [Dune API authentication instructions](https://docs.dune.com/api-reference/overview/authentication)
+(`Settings` -> `API` -> `Create new API key`). A read-only key is sufficient for
+the result endpoint used here. Retrieving results may consume Dune credits, but
+this integration does not trigger query execution.
+
+Public queries can be starting points, but they are third-party artifacts whose
+SQL, schema, refresh schedule, or availability can change. Inspect and preferably
+fork them before enabling them. Examples visible at the time of writing are:
+
+- On-chain example: [BTC - CEX Netflow (Daily), query 6450054](https://dune.com/queries/6450054)
+- ETF example: [BTC ETF Flows, query 3729167](https://dune.com/queries/3729167)
+
+For reliable historical filtering, each query should return a timestamp column
+named `date`, `day`, `time`, `timestamp`, `block_date`, or `block_time`. Prefer
+`ORDER BY date DESC` and compact result columns such as:
+
+```text
+# On-chain flow
+date, asset, exchange, inflow_usd, outflow_usd, netflow_usd
+
+# ETF flow
+date, fund, inflow_usd, outflow_usd, netflow_usd
+```
+
+The project retrieves at most 1,000 rows and exposes at most 50 filtered rows to
+the model. A historical run rejects a Dune result that has no recognized
+timestamp column. Supplying only `DUNE_API_KEY` without a query ID does not add
+any Dune evidence.
+
 The CLI can also accept a local liquidation-heatmap image or public HTTPS image
 URL. The selected Crypto Intelligence model reads it once in a dedicated,
 tool-free multimodal request with `detail=original`. Only the resulting text,
