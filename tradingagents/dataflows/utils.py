@@ -1,8 +1,10 @@
 import re
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta
 from typing import Annotated
 
 import pandas as pd
+
+from tradingagents.market_time import current_market_date
 
 SavePathType = Annotated[str, "File path to save data. If None, data is not saved."]
 
@@ -48,8 +50,9 @@ def save_output(data: pd.DataFrame, tag: str, save_path: SavePathType = None) ->
         print(f"{tag} saved to {save_path}")
 
 
-def get_current_date():
-    return date.today().strftime("%Y-%m-%d")
+def get_current_date(asset_type: str = "stock"):
+    """Return the current market date (UTC calendar date for crypto)."""
+    return current_market_date(asset_type).strftime("%Y-%m-%d")
 
 
 def decorate_all_methods(decorator):

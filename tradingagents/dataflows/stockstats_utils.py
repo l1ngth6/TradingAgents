@@ -8,8 +8,10 @@ import yfinance as yf
 from stockstats import wrap
 from yfinance.exceptions import YFRateLimitError
 
+from tradingagents.market_time import current_market_date
+
 from .config import get_config
-from .symbol_utils import NoMarketDataError, normalize_symbol
+from .symbol_utils import NoMarketDataError, crypto_base, normalize_symbol
 from .utils import safe_ticker_component
 
 logger = logging.getLogger(__name__)
@@ -162,7 +164,14 @@ def load_ohlcv(symbol: str, curr_date: str) -> pd.DataFrame:
     curr_date_dt = pd.to_datetime(curr_date)
 
     # Cache uses a fixed window (5y to today) so one file per symbol.
-    today_date = pd.Timestamp.today()
+    # Crypto daily candles roll at 00:00 UTC, irrespective of the host timezone.
+    # Keep the legacy host-local date for other markets until they have their
+    # own exchange calendars.
+    today_date = (
+        pd.Timestamp(current_market_date("crypto"))
+        if crypto_base(canonical)
+        else pd.Timestamp.today()
+    )
     start_date = today_date - pd.DateOffset(years=5)
     start_str = start_date.strftime("%Y-%m-%d")
     # yfinance ``end`` is EXCLUSIVE; request tomorrow so today's row is included

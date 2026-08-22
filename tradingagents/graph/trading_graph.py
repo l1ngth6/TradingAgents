@@ -34,6 +34,7 @@ from tradingagents.dataflows.utils import safe_ticker_component
 from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.llm_clients import create_llm_client
 from tradingagents.llm_clients.agent_overrides import build_agent_llm_overrides
+from tradingagents.market_time import uses_utc_market_day, validate_analysis_date
 from tradingagents.reporting import write_report_tree
 
 from .checkpointer import checkpoint_step, clear_checkpoint, get_checkpointer, thread_id
@@ -376,6 +377,12 @@ class TradingAgentsGraph:
         a per-ticker SqliteSaver so a crashed run can resume from the last
         successful node on a subsequent invocation with the same ticker+date.
         """
+        # A host-local "today" can already be tomorrow in UTC (e.g. before
+        # 08:00 in Beijing). Refuse that future candle on programmatic crypto
+        # calls just as the CLI does; historical dates are unchanged.
+        if uses_utc_market_day(asset_type):
+            validate_analysis_date(trade_date, asset_type)
+
         self.ticker = company_name
 
         # Resolve any pending memory-log entries for this ticker before the pipeline runs.

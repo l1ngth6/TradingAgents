@@ -49,6 +49,7 @@ from tradingagents.graph.analyst_execution import (
     sync_analyst_tracker_from_chunk,
 )
 from tradingagents.graph.trading_graph import TradingAgentsGraph
+from tradingagents.market_time import current_market_date
 from tradingagents.reporting import write_report_tree
 
 console = Console()
@@ -563,15 +564,15 @@ def get_user_selections():
         )
 
     # Step 2: Analysis date
-    default_date = datetime.datetime.now().strftime("%Y-%m-%d")
+    default_date = current_market_date(asset_type).strftime("%Y-%m-%d")
     console.print(
         create_question_box(
             "Step 2: Analysis Date",
-            "Enter the analysis date (YYYY-MM-DD)",
+            _analysis_date_guidance(asset_type),
             default_date,
         )
     )
-    analysis_date = get_analysis_date()
+    analysis_date = get_analysis_date(asset_type)
 
     # Step 3: Output language (skipped when set via TRADINGAGENTS_OUTPUT_LANGUAGE)
     if os.environ.get("TRADINGAGENTS_OUTPUT_LANGUAGE"):
@@ -741,17 +742,36 @@ def get_user_selections():
     }
 
 
-def get_analysis_date():
-    """Get the analysis date from user input."""
+def _analysis_date_guidance(asset_type="stock") -> str:
+    """Return the terminal guidance for the selected asset's date calendar."""
+    guidance = "Enter the analysis date (YYYY-MM-DD)"
+    if getattr(asset_type, "value", asset_type) == "crypto":
+        guidance += (
+            ". Use the UTC calendar date: daily candles roll at 00:00 UTC "
+            "(08:00 Beijing time)"
+        )
+    return guidance
+
+
+def get_analysis_date(asset_type="stock"):
+    """Get an analysis date, using the asset's market-calendar boundary."""
     while True:
+        market_today = current_market_date(asset_type)
         date_str = typer.prompt(
-            "", default=datetime.datetime.now().strftime("%Y-%m-%d")
+            "", default=market_today.strftime("%Y-%m-%d")
         )
         try:
             # Validate date format and ensure it's not in the future
             analysis_date = datetime.datetime.strptime(date_str, "%Y-%m-%d")
-            if analysis_date.date() > datetime.datetime.now().date():
-                console.print("[red]Error: Analysis date cannot be in the future[/red]")
+            if analysis_date.date() > market_today:
+                boundary = (
+                    "the current UTC calendar date"
+                    if getattr(asset_type, "value", asset_type) == "crypto"
+                    else "the current date"
+                )
+                console.print(
+                    f"[red]Error: Analysis date cannot be later than {boundary}[/red]"
+                )
                 continue
             return date_str
         except ValueError:

@@ -36,10 +36,12 @@ def create_market_analyst(llm):
 
 This is a cryptocurrency analysis. After retrieving the canonical OHLCV and
 indicators, call get_crypto_derivatives once for the exact ticker and analysis
-date. Treat funding, open interest, long/short positioning, and taker flow as
-supplemental derivatives-market evidence. Explicitly distinguish futures
-positioning from spot demand, and do not let missing Binance enrichment weaken
-or override verified OHLCV evidence."""
+date. The analysis date and all daily-candle labels use UTC calendar days, with
+each new daily candle beginning at 00:00 UTC; never reinterpret them in the
+host's local timezone. Treat funding, open interest, long/short positioning,
+and taker flow as supplemental derivatives-market evidence. Explicitly
+distinguish futures positioning from spot demand, and do not let missing
+Binance enrichment weaken or override verified OHLCV evidence."""
 
         system_message = (
             """You are a trading assistant tasked with analyzing financial markets. Your role is to select the **most relevant indicators** for a given market condition or trading strategy from the following list. The goal is to choose up to **8 indicators** that provide complementary insights without redundancy. Categories and each category's indicators are:

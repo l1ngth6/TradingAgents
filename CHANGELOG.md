@@ -18,6 +18,12 @@ Breaking changes within the 0.x line are called out explicitly.
   OHLCV data. Crypto-only tools are bound to the model only for crypto runs, so
   equity and other non-crypto analyses cannot invoke them.
 
+### Fixed
+
+- **Crypto daily dates are host-timezone independent.** The CLI date default,
+  future-date check, and OHLCV cache rollover now use the 00:00 UTC crypto
+  candle boundary. Other markets retain their existing host-local behaviour.
+
 ## [0.3.1] — 2026-07-05
 
 Correctness and stability patch: data look-ahead, graph-router crash-safety,

@@ -258,7 +258,16 @@ degrades these optional sections without aborting the main analysis. Configure
 the vendors through `data_vendors.crypto_derivatives` and
 `data_vendors.crypto_sentiment`; no API keys are required by default.
 The CLI detects crypto pairs automatically; programmatic callers should pass
-`asset_type="crypto"` to `propagate()`.
+`asset_type="crypto"` to `propagate()` and interpret its `trade_date` as a UTC
+calendar date.
+
+Crypto analysis uses UTC calendar dates: a new daily candle starts at 00:00 UTC
+(08:00 in Beijing). The CLI's default analysis date and future-date validation,
+as well as OHLCV cache rollover/freshness, follow this UTC boundary and do not
+depend on the host timezone. Other asset types retain host-local date behaviour
+for now. Programmatic crypto runs reject a `trade_date` later than the current
+UTC calendar date, preventing a host-local “today” from selecting a candle that
+has not started yet.
 
 ## Persistence and Recovery
 

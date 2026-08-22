@@ -5,6 +5,8 @@ import pandas as pd
 import yfinance as yf
 from dateutil.relativedelta import relativedelta
 
+from tradingagents.market_time import market_timestamp
+
 from .stockstats_utils import (
     StockstatsUtils,
     _assert_ohlcv_not_stale,
@@ -12,7 +14,7 @@ from .stockstats_utils import (
     load_ohlcv,
     yf_retry,
 )
-from .symbol_utils import NoMarketDataError, normalize_symbol
+from .symbol_utils import NoMarketDataError, crypto_base, normalize_symbol
 
 
 def get_YFin_data_online(
@@ -65,7 +67,8 @@ def get_YFin_data_online(
     label = canonical if canonical == symbol.upper() else f"{canonical} (from {symbol})"
     header = f"# Stock data for {label} from {start_date} to {end_date}\n"
     header += f"# Total records: {len(data)}\n"
-    header += f"# Data retrieved on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+    asset_type = "crypto" if crypto_base(canonical) else "stock"
+    header += f"# Data retrieved on: {market_timestamp(asset_type)}\n\n"
 
     return header + csv_string
 
