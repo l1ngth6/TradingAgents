@@ -391,6 +391,15 @@ analysis; the raw image is not carried through that loop. The image is hashed
 and copied into the saved report and can only cross-check numeric sources. It
 cannot independently alter the rating.
 
+Remote-image staging rejects loopback, private, link-local, and reserved DNS
+answers as an SSRF safeguard. Proxy/TUN clients such as Clash may intentionally
+return an address from the RFC 2544 benchmarking range `198.18.0.0/15` while
+still making the public HTTPS URL reachable. For this narrowly recognized
+Fake-IP case only, TradingAgents verifies the hostname's real A/AAAA records
+through Cloudflare's keyless DNS-over-HTTPS endpoint and requires every returned
+address to be public before downloading. Other non-public ranges remain blocked;
+the benchmarking range is never blindly allowlisted.
+
 Historical-capable sources are capped at the requested analysis date. Binance retains some
 positioning series for only a limited recent window, so an older analysis may
 show funding data while marking open-interest or ratio history unavailable. A

@@ -9,6 +9,7 @@ import shutil
 import socket
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
+from functools import lru_cache
 from pathlib import Path
 from urllib.parse import urljoin, urlparse
 
@@ -16,6 +17,9 @@ import requests
 
 MAX_HEATMAP_BYTES = 12 * 1024 * 1024
 MAX_REDIRECTS = 3
+DOH_TIMEOUT = 8
+DOH_ENDPOINT = "https://cloudflare-dns.com/dns-query"
+_PROXY_FAKE_IP_NETWORKS = (ipaddress.ip_network("198.18.0.0/15"),)
 _MAGIC = (
     (b"\x89PNG\r\n\x1a\n", "image/png", ".png"),
     (b"\xff\xd8\xff", "image/jpeg", ".jpg"),
@@ -27,6 +31,78 @@ _MAGIC = (
 
 class HeatmapInputError(ValueError):
     """The optional heatmap input was unsafe, inaccessible, or not an image."""
+
+
+def _ip_address(value: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address:
+    """Parse socket addresses defensively, removing an IPv6 interface zone."""
+    return ipaddress.ip_address(str(value).split("%", 1)[0])
+
+
+def _is_proxy_fake_ip(address: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    """Whether an address is in a narrowly recognized proxy Fake-IP range."""
+    return any(address in network for network in _PROXY_FAKE_IP_NETWORKS)
+
+
+@lru_cache(maxsize=128)
+def _resolve_public_addresses_doh(hostname: str) -> frozenset[str]:
+    """Resolve real A/AAAA records through a fixed HTTPS DNS endpoint.
+
+    This is only called when local DNS returned the RFC 2544 benchmarking range
+    commonly used by proxy/TUN Fake-IP mode. It is not a general fallback for
+    arbitrary private, loopback, link-local, or reserved DNS answers.
+    """
+    addresses = set()
+    normalized_host = hostname.rstrip(".").lower()
+    for record_type, expected_code in (("A", 1), ("AAAA", 28)):
+        try:
+            response = requests.get(
+                DOH_ENDPOINT,
+                params={"name": normalized_host, "type": record_type},
+                headers={
+                    "Accept": "application/dns-json",
+                    "User-Agent": "TradingAgents/heatmap-dns-validation",
+                },
+                timeout=DOH_TIMEOUT,
+            )
+            response.raise_for_status()
+            payload = response.json()
+        except (requests.RequestException, ValueError) as exc:
+            raise HeatmapInputError(
+                f"could not verify proxy Fake-IP hostname through DNS-over-HTTPS: {exc}"
+            ) from exc
+
+        if not isinstance(payload, dict):
+            raise HeatmapInputError("DNS-over-HTTPS returned an unexpected payload")
+        status = payload.get("Status")
+        if status not in {0, 3}:
+            raise HeatmapInputError(
+                f"DNS-over-HTTPS lookup failed with DNS status {status}"
+            )
+        questions = {
+            str(item.get("name", "")).rstrip(".").lower()
+            for item in payload.get("Question", [])
+            if isinstance(item, dict)
+        }
+        if normalized_host not in questions:
+            raise HeatmapInputError("DNS-over-HTTPS response did not match the requested host")
+        for answer in payload.get("Answer", []):
+            if not isinstance(answer, dict) or answer.get("type") != expected_code:
+                continue
+            try:
+                addresses.add(str(_ip_address(str(answer.get("data", "")))))
+            except ValueError:
+                continue
+
+    if not addresses:
+        raise HeatmapInputError(
+            "proxy Fake-IP hostname has no public A or AAAA records in DNS-over-HTTPS"
+        )
+    resolved = {_ip_address(address) for address in addresses}
+    if any(not address.is_global for address in resolved):
+        raise HeatmapInputError(
+            "proxy Fake-IP hostname resolves to a non-public address in DNS-over-HTTPS"
+        )
+    return frozenset(addresses)
 
 
 def _image_type(data: bytes) -> tuple[str, str]:
@@ -48,10 +124,21 @@ def _validate_public_https(url: str) -> None:
         addresses = {item[4][0] for item in socket.getaddrinfo(parsed.hostname, parsed.port or 443)}
     except socket.gaierror as exc:
         raise HeatmapInputError(f"could not resolve heatmap host: {exc}") from exc
-    for address in addresses:
-        ip = ipaddress.ip_address(address)
-        if not ip.is_global:
-            raise HeatmapInputError("remote heatmap URL resolves to a non-public address")
+    try:
+        parsed_addresses = {_ip_address(address) for address in addresses}
+    except ValueError as exc:
+        raise HeatmapInputError(f"heatmap host returned an invalid IP address: {exc}") from exc
+    non_public = {address for address in parsed_addresses if not address.is_global}
+    if not non_public:
+        return
+
+    # Clash/TUN-style Fake-IP DNS commonly synthesizes 198.18.0.0/15. Do not
+    # broadly allow this non-public range: verify the original hostname against
+    # a fixed DoH resolver and require every real A/AAAA result to be public.
+    if all(_is_proxy_fake_ip(address) for address in non_public):
+        _resolve_public_addresses_doh(parsed.hostname)
+        return
+    raise HeatmapInputError("remote heatmap URL resolves to a non-public address")
 
 
 def _read_local(path: Path) -> tuple[bytes, str | None]:
