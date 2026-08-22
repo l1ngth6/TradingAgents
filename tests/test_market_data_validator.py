@@ -61,6 +61,40 @@ class TestVerifiedSnapshot:
         with pytest.raises(NoMarketDataError, match="completed crypto daily candle 2026-08-21"):
             validator.build_verified_market_snapshot("BTC-USD", "2026-08-21")
 
+    def test_crypto_uses_configured_binance_fallback(self, monkeypatch):
+        yahoo_error = NoMarketDataError(
+            "BTC-USD", "BTC-USD", "completed crypto daily candle unavailable"
+        )
+
+        def missing_yahoo_candle(_symbol, _date):
+            raise yahoo_error
+
+        monkeypatch.setattr(validator, "load_ohlcv", missing_yahoo_candle)
+        binance_data = pd.DataFrame(
+            {
+                "Date": pd.to_datetime(["2026-08-20", "2026-08-21"]),
+                "Open": [69000.0, 73000.0],
+                "High": [73500.0, 79000.0],
+                "Low": [68000.0, 72000.0],
+                "Close": [73000.0, 78000.0],
+                "Volume": [50000.0, 60000.0],
+            }
+        )
+        binance_data.attrs["market_data_source"] = (
+            "Binance Spot BTCUSDT UTC daily candles"
+        )
+        monkeypatch.setattr(
+            validator,
+            "load_binance_spot_ohlcv",
+            lambda _symbol, _date: binance_data,
+        )
+
+        snap = validator.build_verified_market_snapshot("BTC-USD", "2026-08-21")
+
+        assert "Latest trading row used: 2026-08-21" in snap
+        assert "Market-data source: Binance Spot BTCUSDT" in snap
+        assert "| Close | 78000.00 |" in snap
+
     def test_raises_when_no_rows_on_or_before_date(self, monkeypatch):
         monkeypatch.setattr(validator, "load_ohlcv", lambda s, d: _sample_ohlcv())
         with pytest.raises(ValueError):

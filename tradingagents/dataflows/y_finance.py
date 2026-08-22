@@ -81,6 +81,8 @@ def get_stock_stats_indicators_window(
         str, "The current trading date you are trading on, YYYY-mm-dd"
     ],
     look_back_days: Annotated[int, "how many days to look back"],
+    *,
+    ohlcv_loader=None,
 ) -> str:
 
     best_ind_params = {
@@ -167,7 +169,9 @@ def get_stock_stats_indicators_window(
 
     # Optimized: Get stock data once and calculate indicators for all dates
     try:
-        indicator_data = _get_stock_stats_bulk(symbol, indicator, curr_date)
+        indicator_data = _get_stock_stats_bulk(
+            symbol, indicator, curr_date, ohlcv_loader=ohlcv_loader
+        )
 
         # Generate the date range we need
         current_dt = curr_date_dt
@@ -203,7 +207,10 @@ def get_stock_stats_indicators_window(
         curr_date_dt = datetime.strptime(curr_date, "%Y-%m-%d")
         while curr_date_dt >= before:
             indicator_value = get_stockstats_indicator(
-                symbol, indicator, curr_date_dt.strftime("%Y-%m-%d")
+                symbol,
+                indicator,
+                curr_date_dt.strftime("%Y-%m-%d"),
+                ohlcv_loader=ohlcv_loader,
             )
             ind_string += f"{curr_date_dt.strftime('%Y-%m-%d')}: {indicator_value}\n"
             curr_date_dt = curr_date_dt - relativedelta(days=1)
@@ -221,7 +228,9 @@ def get_stock_stats_indicators_window(
 def _get_stock_stats_bulk(
     symbol: Annotated[str, "ticker symbol of the company"],
     indicator: Annotated[str, "technical indicator to calculate"],
-    curr_date: Annotated[str, "current date for reference"]
+    curr_date: Annotated[str, "current date for reference"],
+    *,
+    ohlcv_loader=None,
 ) -> dict:
     """
     Optimized bulk calculation of stock stats indicators.
@@ -230,7 +239,8 @@ def _get_stock_stats_bulk(
     """
     from stockstats import wrap
 
-    data = load_ohlcv(symbol, curr_date)
+    loader = ohlcv_loader or load_ohlcv
+    data = loader(symbol, curr_date)
     df = wrap(data)
     df["Date"] = df["Date"].dt.strftime("%Y-%m-%d")
 
@@ -258,17 +268,31 @@ def get_stockstats_indicator(
     curr_date: Annotated[
         str, "The current trading date you are trading on, YYYY-mm-dd"
     ],
+    *,
+    ohlcv_loader=None,
 ) -> str:
 
     curr_date_dt = datetime.strptime(curr_date, "%Y-%m-%d")
     curr_date = curr_date_dt.strftime("%Y-%m-%d")
 
     try:
-        indicator_value = StockstatsUtils.get_stock_stats(
-            symbol,
-            indicator,
-            curr_date,
-        )
+        if ohlcv_loader is None:
+            indicator_value = StockstatsUtils.get_stock_stats(
+                symbol,
+                indicator,
+                curr_date,
+            )
+        else:
+            from stockstats import wrap
+
+            data = ohlcv_loader(symbol, curr_date)
+            frame = wrap(data)
+            frame["Date"] = frame["Date"].dt.strftime("%Y-%m-%d")
+            frame[indicator]
+            matching = frame[frame["Date"] == curr_date]
+            indicator_value = (
+                "N/A" if matching.empty else matching.iloc[-1][indicator]
+            )
     except NoMarketDataError:
         raise  # Unknown/delisted symbol — let the router emit the sentinel
     except Exception as e:

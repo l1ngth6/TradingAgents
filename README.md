@@ -242,9 +242,18 @@ See `tradingagents/default_config.py` for all configuration options.
 
 ### Cryptocurrency-native data
 
-Crypto runs keep Yahoo Finance as the verified completed-daily-OHLCV and
-technical-indicator source. A single optional **Crypto Intelligence Analyst**
-owns the crypto-native cross-check so the core analysts do not duplicate work.
+Crypto runs use an ordered completed-daily-OHLCV chain: Yahoo Finance first,
+then keyless Binance Spot when Yahoo has not published the exact required UTC
+crypto candle. `BTC-USD` and slash/stablecoin forms such as `BTC/USDT` normalize
+to the canonical project symbol; the Binance fallback explicitly uses
+`BTCUSDT` for the canonical `BTC-USD` pair. Binance `Volume` is
+base-asset volume and remains paired with Binance OHLC prices. The validation
+snapshot and technical indicators use the same fallback, so they cannot reject
+a candle that the market-data tool accepted or mix Yahoo aggregate volume into
+Binance prices. The fallback uses Binance's keyless
+[market-data-only REST endpoint](https://github.com/binance/binance-spot-api-docs/blob/master/faqs/market_data_only.md).
+A single optional **Crypto Intelligence Analyst** owns the
+crypto-native cross-check so the core analysts do not duplicate work.
 At task initialization the CLI asks for `Disabled`, `Shadow`, or `Advisory`:
 
 - Shadow (recommended initially) saves the independent report but keeps it out

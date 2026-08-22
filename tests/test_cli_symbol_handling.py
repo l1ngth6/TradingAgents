@@ -15,6 +15,7 @@ from tradingagents.dataflows.symbol_utils import normalize_symbol
     ("BTCUSD", "BTC-USD"),
     ("BTCUSDT", "BTC-USD"),
     ("BTC-USDT", "BTC-USD"),
+    ("BTC/USDT", "BTC-USD"),
     ("BTC-USDC", "BTC-USD"),
     ("ethusdt", "ETH-USD"),
     # non-crypto must be untouched
@@ -34,6 +35,7 @@ def test_normalize_symbol_crypto_and_passthrough(raw, expected):
     ("AAPL", True),
     ("0700.HK", True),
     ("^GSPC", True),
+    ("BTC/USDT", True),
     ("", True),                 # empty -> defaults to SPY downstream
     ("bad symbol!", False),     # space + '!' rejected
     ("A" * 40, False),          # too long
@@ -46,6 +48,7 @@ def test_ticker_input_validation(value, ok):
 @pytest.mark.parametrize("raw,expected", [
     ("BTCUSD", AssetType.CRYPTO),
     ("BTC-USDT", AssetType.CRYPTO),
+    ("BTC/USDT", AssetType.CRYPTO),
     ("BTC-USD", AssetType.CRYPTO),
     ("ETHUSD", AssetType.CRYPTO),
     ("AAPL", AssetType.STOCK),
@@ -58,5 +61,5 @@ def test_detect_asset_type(raw, expected):
 
 def test_cli_normalize_delegates_to_data_layer():
     # CLI must produce the same canonical symbol the data path will price.
-    for raw in ("XAUUSD", "BTCUSD", "btc-usdt", "AAPL"):
+    for raw in ("XAUUSD", "BTCUSD", "btc-usdt", "btc/usdt", "AAPL"):
         assert normalize_ticker_symbol(raw) == normalize_symbol(raw)

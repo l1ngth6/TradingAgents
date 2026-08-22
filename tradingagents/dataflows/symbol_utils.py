@@ -85,18 +85,36 @@ _YAHOO_SAFE = re.compile(r"^[A-Za-z0-9._\-\^=]+$")
 _CRYPTO_QUOTES = ("USDT", "USDC", "USD")
 
 
+def _compact_crypto_symbol(raw: str) -> str:
+    """Remove common pair separators without altering the base/quote text."""
+    return re.sub(r"[-/_:]", "", raw.strip().upper().rstrip("+"))
+
+
 def crypto_base(raw: str) -> str | None:
     """Return the crypto base (e.g. ``BTC``) for a known USD/USDT/USDC-quoted
     crypto symbol in any form the pipeline may hold — ``BTC-USD``, ``BTCUSD``,
-    ``BTC-USDT`` — or None for non-crypto symbols. Purely syntactic.
+    ``BTC-USDT``, ``BTC/USDT`` — or None for non-crypto symbols. Purely
+    syntactic.
     """
     if not isinstance(raw, str):
         return None
-    compact = raw.strip().upper().rstrip("+").replace("-", "")
+    compact = _compact_crypto_symbol(raw)
     for quote in _CRYPTO_QUOTES:
         if compact.endswith(quote):
             base = compact[: -len(quote)]
             return base if base in _CRYPTO_BASES else None
+    return None
+
+
+def crypto_quote(raw: str) -> str | None:
+    """Return USD, USDT, or USDC for a recognized crypto pair."""
+    base = crypto_base(raw)
+    if not base:
+        return None
+    compact = _compact_crypto_symbol(raw)
+    for quote in _CRYPTO_QUOTES:
+        if compact == f"{base}{quote}":
+            return quote
     return None
 
 

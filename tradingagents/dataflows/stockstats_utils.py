@@ -311,6 +311,10 @@ def load_ohlcv(symbol: str, curr_date: str) -> pd.DataFrame:
     # than silently calculating indicators from the prior day.
     _assert_crypto_cutoff_available(data, curr_date, symbol, canonical)
 
+    data.attrs["market_data_source"] = (
+        f"Yahoo Finance {canonical} daily data"
+    )
+
     return data
 
 

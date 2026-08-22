@@ -13,6 +13,10 @@ from .alpha_vantage import (
 )
 from .alternative_me import get_crypto_fear_greed as get_alternative_me_fear_greed
 from .binance_crypto import get_crypto_derivatives as get_binance_crypto_derivatives
+from .binance_spot import (
+    get_binance_spot_data,
+    get_binance_spot_indicators_window,
+)
 from .crypto_intelligence import (
     get_coinalyze_liquidations,
     get_crypto_onchain as get_coin_metrics_onchain,
@@ -140,11 +144,13 @@ VENDOR_METHODS = {
     # core_stock_apis
     "get_stock_data": {
         "alpha_vantage": get_alpha_vantage_stock,
+        "binance": get_binance_spot_data,
         "yfinance": get_YFin_data_online,
     },
     # technical_indicators
     "get_indicators": {
         "alpha_vantage": get_alpha_vantage_indicator,
+        "binance": get_binance_spot_indicators_window,
         "yfinance": get_stock_stats_indicators_window,
     },
     # fundamental_data

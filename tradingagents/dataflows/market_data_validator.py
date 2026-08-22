@@ -15,10 +15,14 @@ from collections.abc import Iterable
 import pandas as pd
 from stockstats import wrap
 
+from tradingagents.dataflows.binance_spot import load_binance_spot_ohlcv
+from tradingagents.dataflows.config import get_config
+from tradingagents.dataflows.errors import NoMarketDataError
 from tradingagents.dataflows.stockstats_utils import (
     _assert_crypto_cutoff_available,
     load_ohlcv,
 )
+from tradingagents.dataflows.symbol_utils import crypto_base
 from tradingagents.market_time import completed_daily_cutoff_for_symbol
 
 # A fixed, common indicator set so the snapshot is the same shape every run.
@@ -37,10 +41,27 @@ def _verified_rows(symbol: str, curr_date: str) -> pd.DataFrame:
     verification path, so it must not trust its input to be pre-filtered.
     """
     curr_date = completed_daily_cutoff_for_symbol(curr_date, symbol)
-    data = load_ohlcv(symbol, curr_date)
+    try:
+        data = load_ohlcv(symbol, curr_date)
+    except NoMarketDataError:
+        vendor_setting = str(
+            get_config().get("data_vendors", {}).get(
+                "technical_indicators", "yfinance"
+            )
+        )
+        configured = {item.strip() for item in vendor_setting.split(",")}
+        if not crypto_base(symbol) or (
+            "binance" not in configured and "default" not in configured
+        ):
+            raise
+        data = load_binance_spot_ohlcv(symbol, curr_date)
     if data is None or data.empty:
         raise ValueError(f"No OHLCV data available for {symbol}.")
 
+    market_data_source = str(
+        data.attrs.get("market_data_source")
+        or "Yahoo Finance completed daily OHLCV"
+    )
     df = data.copy()
     df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
     df = df.dropna(subset=["Date"])
@@ -51,6 +72,7 @@ def _verified_rows(symbol: str, curr_date: str) -> pd.DataFrame:
     # input defensively. A completed crypto candle may not fall back to an older
     # row the way an equity cutoff can fall on a weekend or exchange holiday.
     _assert_crypto_cutoff_available(df, curr_date, symbol)
+    df.attrs["market_data_source"] = market_data_source
     return df
 
 
@@ -93,6 +115,7 @@ def build_verified_market_snapshot(
 
     latest = df.iloc[-1]
     latest_date = _fmt(latest["Date"])
+    source = str(df.attrs["market_data_source"])
     window = max(1, min(int(look_back_days), 30))
     recent = df.tail(window)
 
@@ -101,6 +124,7 @@ def build_verified_market_snapshot(
         "",
         f"- Requested completed-candle cutoff: {curr_date}",
         f"- Latest trading row used: {latest_date}",
+        f"- Market-data source: {source}",
         "- This is completed daily-candle data. Rows after this closed-candle cutoff are excluded.",
         "- Verification method: deterministic calculation independent of the LLM; "
         "this is not an independent market-data vendor.",

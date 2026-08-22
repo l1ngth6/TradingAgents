@@ -9,7 +9,12 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from tradingagents.dataflows import alternative_me, binance_crypto, crypto_intelligence
+from tradingagents.dataflows import (
+    alternative_me,
+    binance_crypto,
+    binance_spot,
+    crypto_intelligence,
+)
 from tradingagents.dataflows.symbol_utils import NoMarketDataError
 
 
@@ -24,6 +29,7 @@ def _ms(value: str) -> int:
         ("BTC-USD", "BTCUSDT"),
         ("BTCUSD", "BTCUSDT"),
         ("BTC-USDT", "BTCUSDT"),
+        ("BTC/USDT", "BTCUSDT"),
         ("eth-usdc", "ETHUSDT"),
         ("BNB-USD", "BNBUSDT"),
         ("SUIUSD", "SUIUSDT"),
@@ -37,6 +43,47 @@ def test_binance_symbol_conversion(raw, expected):
 def test_binance_rejects_non_crypto_symbol():
     with pytest.raises(NoMarketDataError):
         binance_crypto._binance_symbol("AAPL")
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("BTC-USD", ("BTCUSDT", "USDT")),
+        ("BTC/USD", ("BTCUSDT", "USDT")),
+        ("btc/usdt", ("BTCUSDT", "USDT")),
+        ("ETH-USDC", ("ETHUSDC", "USDC")),
+    ],
+)
+def test_binance_spot_symbol_conversion(raw, expected):
+    assert binance_spot._binance_spot_symbol(raw) == expected
+
+
+@pytest.mark.unit
+def test_binance_spot_uses_only_completed_utc_candles(monkeypatch):
+    completed_open = _ms("2026-08-21T00:00:00")
+    completed_close = _ms("2026-08-21T23:59:59")
+    future_open = _ms("2099-08-22T00:00:00")
+    future_close = _ms("2099-08-22T23:59:59")
+
+    monkeypatch.setattr(
+        binance_spot,
+        "_request_klines",
+        lambda _params: [
+            [completed_open, "73000", "79000", "72000", "78000", "100", completed_close, "7600000", 1000],
+            [future_open, "78000", "80000", "77000", "79000", "50", future_close, "3900000", 500],
+        ],
+    )
+    binance_spot._fetch_kline_rows.cache_clear()
+
+    frame = binance_spot.get_binance_spot_ohlcv_frame(
+        "BTC/USDT", "2026-08-21", "2026-08-21"
+    )
+
+    assert frame.iloc[-1]["Close"] == 78000
+    assert frame.iloc[-1]["Volume"] == 100
+    assert frame.iloc[-1]["Quote Volume"] == "7600000"
+    assert "Binance Spot BTCUSDT" in frame.attrs["market_data_source"]
 
 
 @pytest.mark.unit

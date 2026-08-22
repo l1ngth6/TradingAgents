@@ -7,6 +7,7 @@ import pytest
 from tradingagents.dataflows.symbol_utils import (
     NoMarketDataError,
     crypto_base,
+    crypto_quote,
     is_yahoo_safe,
     normalize_symbol,
 )
@@ -42,6 +43,7 @@ class TestNormalizeSymbol(unittest.TestCase):
 
     def test_crypto_pairs_get_dash_usd(self):
         self.assertEqual(normalize_symbol("BTCUSD"), "BTC-USD")
+        self.assertEqual(normalize_symbol("btc/usdt"), "BTC-USD")
         self.assertEqual(normalize_symbol("ETHUSD"), "ETH-USD")
 
     def test_six_letter_non_currency_left_alone(self):
@@ -81,7 +83,14 @@ class TestIsYahooSafe(unittest.TestCase):
 @pytest.mark.unit
 class TestCryptoBase(unittest.TestCase):
     def test_resolves_known_crypto_forms(self):
-        for raw in ("BTC-USD", "BTCUSD", "btc-usdt", "BTC-USDC", "BTCUSD+"):
+        for raw in (
+            "BTC-USD",
+            "BTCUSD",
+            "btc-usdt",
+            "BTC/USDT",
+            "BTC_USDC",
+            "BTCUSD+",
+        ):
             self.assertEqual(crypto_base(raw), "BTC")
         self.assertEqual(crypto_base("ETH-USD"), "ETH")
         self.assertEqual(crypto_base("sol-usd"), "SOL")
@@ -96,6 +105,12 @@ class TestCryptoBase(unittest.TestCase):
         # crypto_base is the shared primitive behind the -USD normalization.
         self.assertEqual(normalize_symbol("BTCUSD"), "BTC-USD")
         self.assertEqual(crypto_base("BTCUSD"), "BTC")
+
+    def test_crypto_quote_preserves_explicit_stablecoin_quote(self):
+        self.assertEqual(crypto_quote("BTC-USD"), "USD")
+        self.assertEqual(crypto_quote("btc/usdt"), "USDT")
+        self.assertEqual(crypto_quote("BTC_USDC"), "USDC")
+        self.assertIsNone(crypto_quote("AAPL"))
 
 
 if __name__ == "__main__":
