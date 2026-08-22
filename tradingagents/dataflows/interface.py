@@ -99,7 +99,7 @@ TOOLS_CATEGORIES = {
         "tools": ["get_crypto_options"],
     },
     "crypto_onchain": {
-        "description": "Free-first on-chain, stablecoin, and configured ETF-flow context",
+        "description": "Free-first network, cross-market spot activity, stablecoin, and configured ETF-flow context",
         "tools": ["get_crypto_onchain"],
     },
     "crypto_liquidations": {

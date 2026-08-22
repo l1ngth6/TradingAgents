@@ -40,8 +40,10 @@ def get_crypto_onchain(
     start_date: Annotated[str, "start date in yyyy-mm-dd format"],
     end_date: Annotated[str, "end date in yyyy-mm-dd format"],
 ) -> str:
-    """Retrieve free-first Coin Metrics asset/stablecoin metrics and optional
-    user-configured Dune on-chain or ETF-flow query results. Missing premium
+    """Retrieve free-first Coin Metrics network/stablecoin metrics, completed
+    daily cross-market reported spot-volume activity, and optional user-defined
+    Dune on-chain or ETF-flow results. Aggregate activity is auxiliary and must
+    never replace exchange OHLCV volume in technical indicators. Missing premium
     exchange-flow/whale data is explicitly reported unavailable.
     """
     return route_to_vendor("get_crypto_onchain", symbol, start_date, end_date)

@@ -178,7 +178,7 @@ DEFAULT_CONFIG = _apply_env_overrides({
         "crypto_derivatives": "binance",     # Options: binance (keyless)
         "crypto_sentiment": "alternative_me",  # Options: alternative_me (keyless)
         "crypto_options": "deribit",          # Options: deribit (keyless; BTC/ETH)
-        "crypto_onchain": "coin_metrics",     # Coin Metrics Community + optional Dune
+        "crypto_onchain": "coin_metrics",     # Coin Metrics network/activity + optional Dune
         "crypto_liquidations": "coinalyze",   # Optional free API key
     },
     # Tool-level configuration (takes precedence over category-level)

@@ -20,6 +20,7 @@ DERIBIT_BASE = "https://www.deribit.com/api/v2"
 COIN_METRICS_BASE = "https://community-api.coinmetrics.io/v4"
 COINALYZE_BASE = "https://api.coinalyze.net/v1"
 DUNE_BASE = "https://api.dune.com/api/v1"
+REPORTED_SPOT_VOLUME_METRIC = "volume_reported_spot_usd_1d"
 
 
 def _get_json(url: str, *, params=None, headers=None) -> dict | list:
@@ -186,6 +187,156 @@ def _coin_metrics_rows(
     return payload.get("data", []) if isinstance(payload, dict) else []
 
 
+def _completed_coin_metrics_cutoff(end_date: str) -> str:
+    """Return the last UTC day safe for completed daily aggregates.
+
+    Coin Metrics may expose a row for the current UTC day before all venues have
+    completed that day.  That row is useful as a live observation but is not
+    comparable with complete 24-hour observations, so this integration excludes
+    it from deterministic daily activity statistics.
+    """
+    requested = datetime.strptime(end_date, "%Y-%m-%d").date()
+    yesterday_utc = datetime.now(timezone.utc).date() - timedelta(days=1)
+    return min(requested, yesterday_utc).isoformat()
+
+
+def _metric_observations(
+    rows: list[dict], metric: str, end_date: str
+) -> list[tuple[datetime, float]]:
+    """Parse, deduplicate, and sort non-null daily Coin Metrics observations."""
+    by_day: dict[str, tuple[datetime, float]] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        value = _as_float(row.get(metric))
+        raw_time = str(row.get("time", ""))
+        if value is None or value < 0 or not raw_time:
+            continue
+        try:
+            # Asset-metrics daily timestamps may contain nanosecond fractions,
+            # which are not parsed consistently across all supported Python
+            # versions. Only the UTC calendar day is relevant here.
+            observed_at = datetime.strptime(raw_time[:10], "%Y-%m-%d").replace(
+                tzinfo=timezone.utc
+            )
+        except ValueError:
+            continue
+        day = observed_at.date().isoformat()
+        if day <= end_date:
+            by_day[day] = (observed_at, value)
+    return [by_day[day] for day in sorted(by_day)]
+
+
+def _pct_change(current: float, previous: float) -> float | None:
+    if previous == 0:
+        return None
+    return (current / previous - 1) * 100
+
+
+def _fmt_usd(value: float | None) -> str:
+    return "N/A" if value is None else f"${value:,.2f}"
+
+
+def _fmt_percent(value: float | None) -> str:
+    return "N/A" if value is None else f"{value:+.2f}%"
+
+
+def _reported_spot_activity_section(rows: list[dict], cutoff: str) -> str:
+    """Render cross-market reported spot volume and conservative diagnostics."""
+    observations = _metric_observations(rows, REPORTED_SPOT_VOLUME_METRIC, cutoff)
+    if not observations:
+        return (
+            "### Cross-market reported spot activity\n\n"
+            "DATA_UNAVAILABLE: Coin Metrics returned no completed, non-null "
+            f"{REPORTED_SPOT_VOLUME_METRIC} observations through {cutoff}."
+        )
+
+    latest_time, latest = observations[-1]
+    previous_time = previous = None
+    daily_change = None
+    if len(observations) >= 2:
+        previous_time, previous = observations[-2]
+        if (latest_time.date() - previous_time.date()).days == 1:
+            daily_change = _pct_change(latest, previous)
+
+    seven_start = latest_time.date() - timedelta(days=7)
+    thirty_start = latest_time.date() - timedelta(days=30)
+    seven_values = [
+        value
+        for observed_at, value in observations
+        if seven_start <= observed_at.date() < latest_time.date()
+    ]
+    thirty_values = [
+        value
+        for observed_at, value in observations
+        if thirty_start <= observed_at.date() < latest_time.date()
+    ]
+    seven_average = sum(seven_values) / len(seven_values) if seven_values else None
+    thirty_average = sum(thirty_values) / len(thirty_values) if thirty_values else None
+    versus_seven = (
+        _pct_change(latest, seven_average) if seven_average not in (None, 0) else None
+    )
+    versus_thirty = (
+        _pct_change(latest, thirty_average) if thirty_average not in (None, 0) else None
+    )
+
+    # Seven observations is a deliberately conservative minimum. A z-score or
+    # percentile over two or three available days looks precise but is not useful.
+    percentile = z_score = None
+    if len(thirty_values) >= 7:
+        percentile = (
+            sum(value <= latest for value in thirty_values) / len(thirty_values) * 100
+        )
+        sample_stdev = stdev(thirty_values)
+        if sample_stdev:
+            z_score = (latest - thirty_average) / sample_stdev
+
+    previous_label = (
+        f"{previous_time.date().isoformat()} ({_fmt_usd(previous)})"
+        if previous_time is not None
+        else "N/A"
+    )
+    gap_note = ""
+    if previous_time is not None and daily_change is None:
+        gap_note = (
+            "- Day-over-day change is unavailable because the two latest "
+            "observations are not consecutive UTC days."
+        )
+
+    lines = [
+        "### Cross-market reported spot activity (auxiliary)",
+        "",
+        "- Metric: `volume_reported_spot_usd_1d` — reported USD spot volume across "
+        "Coin Metrics' covered centralized and decentralized markets.",
+        f"- Completed-daily cutoff: {cutoff}; the current UTC day is excluded from "
+        "daily comparisons even if the API exposes a partial row.",
+        "- Data quality: reported volume is not Coin Metrics' paid trusted-volume "
+        "metric and can include low-quality or wash-traded venue activity.",
+        "- Interpretation: use only as a broad participation/activity cross-check. "
+        "It is not an exchange candle volume, order flow, capital inflow, or a "
+        "replacement for the OHLCV Volume field used by VWMA/MFI/OBV.",
+        gap_note,
+        "",
+        "| Derived activity measure | Value |",
+        "|---|---:|",
+        f"| Latest completed observation | {latest_time.date().isoformat()} ({_fmt_usd(latest)}) |",
+        f"| Previous available observation | {previous_label} |",
+        f"| Consecutive-day change | {_fmt_percent(daily_change)} |",
+        f"| Latest vs prior 7-calendar-day mean ({len(seven_values)} observations) | {_fmt_percent(versus_seven)} |",
+        f"| Latest vs prior 30-calendar-day mean ({len(thirty_values)} observations) | {_fmt_percent(versus_thirty)} |",
+        f"| Percentile versus prior 30 days | {f'{percentile:.1f}%' if percentile is not None else 'N/A (requires at least 7 prior observations)'} |",
+        f"| Z-score versus prior 30 days | {f'{z_score:+.2f}' if z_score is not None else 'N/A (requires at least 7 prior observations and nonzero variance)'} |",
+        "",
+        "#### Recent completed observations",
+        "",
+        "| Day (UTC) | Reported spot volume USD |",
+        "|---|---:|",
+    ]
+    for observed_at, value in observations[-7:]:
+        lines.append(f"| {observed_at.date().isoformat()} | {_fmt_usd(value)} |")
+    return "\n".join(lines)
+
+
 def _dune_latest_result(query_id: str) -> list[dict]:
     key = os.getenv("DUNE_API_KEY", "").strip()
     if not key:
@@ -235,25 +386,36 @@ def _filter_dune_rows(rows: list[dict], end_date: str) -> tuple[list[dict], bool
 
 @lru_cache(maxsize=64)
 def get_crypto_onchain(symbol: str, start_date: str, end_date: str) -> str:
-    """Return free Coin Metrics basics plus explicitly configured Dune datasets."""
+    """Return free Coin Metrics activity/network context plus configured Dune data."""
     base = _base_currency(symbol).lower()
+    coin_metrics_cutoff = _completed_coin_metrics_cutoff(end_date)
     sections = []
     successes = []
     failures = []
     try:
         rows = _coin_metrics_rows(
-            base, "SplyCur,CapMrktCurUSD,TxCnt,AdrActCnt", start_date, end_date
+            base,
+            f"SplyCur,CapMrktCurUSD,TxCnt,AdrActCnt,{REPORTED_SPOT_VOLUME_METRIC}",
+            start_date,
+            end_date,
         )
-        rows = [row for row in rows if str(row.get("time", ""))[:10] <= end_date]
+        rows = [
+            row
+            for row in rows
+            if isinstance(row, dict)
+            and str(row.get("time", ""))[:10] <= coin_metrics_cutoff
+        ]
+        rows.sort(key=lambda row: str(row.get("time", "")))
         latest = rows[-1] if rows else None
         if latest:
             successes.append("Coin Metrics Community")
             sections.append(
-                "### Coin Metrics Community asset metrics\n\n"
+                "### Coin Metrics Community network metrics (latest completed day)\n\n"
                 "| Time | Current supply | Market cap USD | Tx count | Active addresses |\n|---|---:|---:|---:|---:|\n"
                 f"| {latest.get('time')} | {latest.get('SplyCur', 'N/A')} | {latest.get('CapMrktCurUSD', 'N/A')} | "
                 f"{latest.get('TxCnt', 'N/A')} | {latest.get('AdrActCnt', 'N/A')} |"
             )
+            sections.append(_reported_spot_activity_section(rows, coin_metrics_cutoff))
         else:
             failures.append("Coin Metrics Community: no rows in requested window")
     except Exception as exc:  # optional source must degrade independently
@@ -261,7 +423,15 @@ def get_crypto_onchain(symbol: str, start_date: str, end_date: str) -> str:
 
     try:
         stable_rows = _coin_metrics_rows("usdt,usdc", "SplyCur", start_date, end_date)
-        stable_rows = [row for row in stable_rows if str(row.get("time", ""))[:10] <= end_date]
+        stable_rows = [
+            row
+            for row in stable_rows
+            if isinstance(row, dict)
+            and str(row.get("time", ""))[:10] <= coin_metrics_cutoff
+        ]
+        stable_rows.sort(
+            key=lambda row: (str(row.get("asset", "")), str(row.get("time", "")))
+        )
         if stable_rows:
             successes.append("Coin Metrics stablecoin supply")
             latest_by_asset = {}
@@ -308,8 +478,9 @@ def get_crypto_onchain(symbol: str, start_date: str, end_date: str) -> str:
             failures.append(f"{label}: {exc}")
 
     header = [
-        f"## Free-first on-chain context for {base.upper()}", "",
+        f"## Free-first crypto network and market-activity context for {base.upper()}", "",
         f"- Requested window: {start_date} through {end_date}",
+        f"- Coin Metrics completed-daily cutoff: {coin_metrics_cutoff} (current UTC day excluded)",
         f"- Retrieved at: {datetime.now(timezone.utc).isoformat(timespec='seconds')}",
         "- Primary source: https://coinmetrics.io/ (Community API, no authentication)",
         f"- Successful sources: {', '.join(successes) if successes else 'none'}",

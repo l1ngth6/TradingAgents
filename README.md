@@ -260,12 +260,41 @@ The free-first sources are:
   supported USDT perpetuals.
 - Deribit public API: BTC/ETH ATM IV term structure, put/call positioning,
   strike/expiry concentration, and implied-versus-realized volatility context.
-- Coin Metrics Community: basic network and stablecoin-supply metrics. Optional
-  Dune query IDs can supply user-defined licensed on-chain or ETF-flow datasets.
+- Coin Metrics Community: basic network and stablecoin-supply metrics plus
+  `volume_reported_spot_usd_1d`, used as a completed-daily cross-market spot
+  activity reference. Optional Dune query IDs can supply user-defined licensed
+  on-chain or ETF-flow datasets.
 - Coinalyze (optional free API key): actual long/short liquidation history. It
   is explicitly not treated as a predicted liquidation heatmap.
 - Alternative.me: the historical Crypto Fear & Greed Index, labeled as a
   Bitcoin-centric broad-market proxy rather than coin-specific sentiment.
+
+#### Cross-market activity versus exchange OHLCV volume
+
+Coin Metrics Community requires no API key. For each crypto run, the project
+requests `volume_reported_spot_usd_1d`, the reported USD spot volume across Coin
+Metrics' covered centralized and decentralized markets. The deterministic data
+layer derives the consecutive-day change, the latest value relative to the prior
+7- and 30-calendar-day means, and a percentile and sample z-score against the prior
+30 days. It also exposes the latest seven completed observations. Even weekly
+decision runs request at least 31 days of this lightweight context; percentile and
+z-score remain unavailable until at least seven prior observations exist.
+
+This series is deliberately labeled **cross-market reported spot activity**, not
+"the" exact global volume. It is broader than a single exchange but is not the
+paid Coin Metrics trusted-volume series, so it can include low-quality venues or
+wash trading. It does not measure exchange netflow, aggressive buyer/seller flow,
+or new capital entering the asset.
+
+Most importantly, the aggregate series remains isolated inside the Crypto
+Intelligence report. It never replaces the market-data provider's `Volume`
+column and is never fed into VWMA, MFI, OBV, candlestick, or breakout-volume
+calculations. Those indicators must retain the same venue/vendor and candle
+boundaries as their OHLC prices. The current UTC day's Coin Metrics daily row is
+treated as incomplete and excluded from all daily comparisons, even if the API
+already exposes a partial value. This makes the series suitable for checking
+whether a move has broad participation without silently mixing incompatible
+volume definitions.
 
 #### Optional Coinalyze and Dune configuration
 

@@ -5,11 +5,11 @@ requested analysis date so look-ahead filtering and symbol conversion stay
 explicitly covered.
 """
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from tradingagents.dataflows import alternative_me, binance_crypto
+from tradingagents.dataflows import alternative_me, binance_crypto, crypto_intelligence
 from tradingagents.dataflows.symbol_utils import NoMarketDataError
 
 
@@ -150,3 +150,63 @@ def test_fear_greed_rejects_equity(monkeypatch):
     monkeypatch.setattr(alternative_me, "_request", lambda _limit: pytest.fail("network call"))
     with pytest.raises(NoMarketDataError):
         alternative_me.get_crypto_fear_greed("NVDA", "2026-01-10")
+
+
+@pytest.mark.unit
+def test_coin_metrics_reported_spot_activity_is_completed_daily_auxiliary(monkeypatch):
+    asset_rows = []
+    for day in range(1, 12):
+        asset_rows.append(
+            {
+                "asset": "btc",
+                "time": f"2026-01-{day:02d}T00:00:00.000000000Z",
+                "SplyCur": "20000000",
+                "CapMrktCurUSD": "1000000000000",
+                "TxCnt": "500000",
+                "AdrActCnt": "750000",
+                "volume_reported_spot_usd_1d": str(day * 1_000_000_000),
+            }
+        )
+
+    stable_rows = [
+        {
+            "asset": asset,
+            "time": "2026-01-10T00:00:00.000000000Z",
+            "SplyCur": supply,
+        }
+        for asset, supply in (("usdt", "100"), ("usdc", "50"))
+    ]
+
+    def fake_coin_metrics_rows(assets, metrics, _start_time, _end_time):
+        if assets == "btc":
+            assert "volume_reported_spot_usd_1d" in metrics
+            return asset_rows
+        return stable_rows
+
+    monkeypatch.setattr(
+        crypto_intelligence, "_coin_metrics_rows", fake_coin_metrics_rows
+    )
+    monkeypatch.delenv("DUNE_API_KEY", raising=False)
+    monkeypatch.delenv("DUNE_CRYPTO_ONCHAIN_QUERY_ID", raising=False)
+    monkeypatch.delenv("DUNE_CRYPTO_ETF_QUERY_ID", raising=False)
+    crypto_intelligence.get_crypto_onchain.cache_clear()
+
+    report = crypto_intelligence.get_crypto_onchain(
+        "BTC-USD", "2026-01-01", "2026-01-10"
+    )
+
+    assert "Cross-market reported spot activity (auxiliary)" in report
+    assert "2026-01-10 ($10,000,000,000.00)" in report
+    assert "Consecutive-day change | +11.11%" in report
+    assert "Latest vs prior 7-calendar-day mean (7 observations) | +66.67%" in report
+    assert "2026-01-11" not in report
+    assert "not an exchange candle volume" in report
+    assert "replacement for the OHLCV Volume field" in report
+
+
+@pytest.mark.unit
+def test_coin_metrics_current_utc_day_is_not_a_completed_daily_cutoff():
+    today = datetime.now(timezone.utc).date()
+    expected = (today - timedelta(days=1)).isoformat()
+
+    assert crypto_intelligence._completed_coin_metrics_cutoff(today.isoformat()) == expected

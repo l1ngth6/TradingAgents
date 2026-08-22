@@ -159,9 +159,12 @@ def create_crypto_intelligence_analyst(llm):
                 "supplement the present-day perspective, not validate the historical signal."
             )
 
-        lookback_days = {"weekly": 7, "monthly": 30, "strategic": 90}.get(
+        horizon_lookback_days = {"weekly": 7, "monthly": 30, "strategic": 90}.get(
             state.get("decision_horizon", "monthly"), 30
         )
+        # Even a weekly decision needs enough observations for a stable activity
+        # baseline. The report stays compact; this only broadens the source query.
+        lookback_days = max(horizon_lookback_days, 31)
         analysis_day = datetime.strptime(state["trade_date"], "%Y-%m-%d")
         data_window_start = (analysis_day - timedelta(days=lookback_days)).strftime(
             "%Y-%m-%d"
@@ -175,8 +178,8 @@ def create_crypto_intelligence_analyst(llm):
 crypto-native hard data. You are auxiliary: do not perform ordinary OHLCV technical analysis,
 do not issue BUY/HOLD/SELL, do not prescribe a position size, and do not let one source dictate
 the decision. Your job is to cross-check the main thesis using derivatives/order-flow proxies,
-on-chain/stablecoin/ETF evidence, options/volatility, actual liquidation history, and an optional
-one-shot liquidation-heatmap text extraction.
+on-chain/stablecoin/ETF evidence, cross-market reported spot activity, options/volatility, actual
+liquidation history, and an optional one-shot liquidation-heatmap text extraction.
 
 You may make multiple tool calls, but call each available tool no more than once with the exact
 ticker and cutoffs supplied below (maximum four tool calls total). Do not retry unavailable
@@ -190,6 +193,11 @@ contract, or decision authority. You do not have the raw image in this call and 
 to inspect it again or add visual details absent from the extraction.
 Never silently convert actual liquidation history into a predicted heatmap, or call a futures
 mark/index price a spot close.
+Treat Coin Metrics `volume_reported_spot_usd_1d` only as broad cross-market participation:
+compare its direction and relative regime with other evidence, but do not call it order flow,
+capital inflow, trusted volume, or Binance volume. Never substitute it into OHLCV Volume or use
+it to recalculate VWMA, MFI, OBV, breakouts, or candlestick confirmation. Its current UTC day is
+incomplete and excluded by the tool; note that reported venue volume may include wash trading.
 
 Final output contract:
 1. Start with `## Cross-validation summary` and exactly one assessment: Support / Conflict /
