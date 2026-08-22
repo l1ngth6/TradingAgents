@@ -3,6 +3,7 @@ from typing import Annotated
 from langchain_core.tools import tool
 
 from tradingagents.dataflows.market_data_validator import build_verified_market_snapshot
+from tradingagents.dataflows.symbol_utils import NoMarketDataError
 
 
 @tool
@@ -20,4 +21,11 @@ def get_verified_market_snapshot(
     price levels, Bollinger bands, RSI, MACD, moving averages, support /
     resistance, or historical comparisons, and treat it as the source of truth.
     """
-    return build_verified_market_snapshot(symbol, curr_date, look_back_days)
+    try:
+        return build_verified_market_snapshot(symbol, curr_date, look_back_days)
+    except NoMarketDataError as exc:
+        return (
+            f"VERIFIED_MARKET_DATA_UNAVAILABLE: {exc}. Do not substitute an older "
+            "crypto candle, label the missing date as a weekend/non-trading day, "
+            "or fabricate OHLCV and indicator values."
+        )

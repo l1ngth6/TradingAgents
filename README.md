@@ -385,6 +385,15 @@ clamped to the latter, so a live price is never labeled as a daily close or a
 confirmed breakout. The CLI default and future-date validation follow UTC
 (08:00 in Beijing) rather than the host timezone.
 
+Because crypto trades 24/7, its completed-candle cutoff must have an exact daily
+row. A cache created shortly after 00:00 UTC may not yet contain the vendor's
+newly published prior-day candle; such an incomplete cache becomes refreshable
+after the bounded cache TTL even though the requested date is technically
+historical. If a refresh still cannot obtain that exact row, the market tools
+report the candle as unavailable instead of silently substituting an older day or
+mislabeling the date as a weekend/holiday. Equity and ETF analysis retains the
+normal previous-session fallback for genuine non-trading days.
+
 ## Persistence and Recovery
 
 TradingAgents persists two kinds of state across runs.

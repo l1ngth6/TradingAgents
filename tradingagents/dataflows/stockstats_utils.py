@@ -130,8 +130,66 @@ def _assert_ohlcv_not_stale(
         )
 
 
-def _needs_same_day_refresh(data_file, curr_date_dt, today_date) -> bool:
-    """Whether a cached frame must be refetched to reflect the requested day.
+def _has_ohlcv_day(data: pd.DataFrame, requested_day) -> bool:
+    """Whether an OHLCV frame contains the requested calendar-day row."""
+    requested = pd.to_datetime(requested_day, errors="coerce")
+    if pd.isna(requested):
+        return False
+    requested_date = requested.date()
+    return any(
+        pd.Timestamp(value).date() == requested_date
+        for value in _coerce_ohlcv_dates(data)
+    )
+
+
+def _assert_crypto_cutoff_available(
+    data: pd.DataFrame,
+    curr_date: str,
+    symbol: str,
+    canonical: str | None = None,
+) -> None:
+    """Require the exact completed daily candle for a 24/7 crypto asset.
+
+    Stocks may legitimately fall back from a weekend/holiday cutoff to the last
+    exchange session. Crypto has no such calendar gaps: silently substituting an
+    older row means the vendor or cache is incomplete and makes every downstream
+    indicator one day stale.
+    """
+    resolved = canonical or symbol
+    if not crypto_base(resolved):
+        return
+    if _has_ohlcv_day(data, curr_date):
+        return
+
+    dates = _coerce_ohlcv_dates(data)
+    latest = "none"
+    if not dates.empty:
+        cutoff = pd.to_datetime(curr_date, errors="coerce")
+        eligible = [
+            pd.Timestamp(value).date()
+            for value in dates
+            if pd.isna(cutoff) or pd.Timestamp(value).date() <= cutoff.date()
+        ]
+        if eligible:
+            latest = max(eligible).isoformat()
+    raise NoMarketDataError(
+        symbol,
+        resolved,
+        f"completed crypto daily candle {curr_date} is unavailable from the "
+        f"market-data vendor; latest row on or before the cutoff is {latest}. "
+        "Refusing to substitute an older candle",
+    )
+
+
+def _needs_same_day_refresh(
+    data_file,
+    curr_date_dt,
+    today_date,
+    *,
+    cached: pd.DataFrame | None = None,
+    require_exact_date: bool = False,
+) -> bool:
+    """Whether a cached frame must be refetched to reflect the requested cutoff.
 
     The cache file is keyed per day, so without this a run started before the
     day's bar was final keeps serving that snapshot to every later run (#1150).
@@ -139,12 +197,27 @@ def _needs_same_day_refresh(data_file, curr_date_dt, today_date) -> bool:
     missing entirely, or present but still in progress — Yahoo publishes a
     partial daily candle during market hours, whose ``Close`` is not the closing
     price. Row inspection cannot tell a partial bar from a final one, so the TTL
-    governs every current-day cache. Historical requests always reuse the cache,
-    since those rows are immutable.
+    governs every current-day cache.
+
+    A live crypto task is different: on UTC day D it requests the newly closed
+    D-1 candle. That is technically a historical date, but a cache downloaded
+    shortly after midnight may predate the vendor's publication of that row. For
+    24/7 assets, a missing exact cutoff row therefore also becomes refreshable
+    after the TTL. Ordinary historical stock requests keep the legacy immutable
+    cache behaviour so weekends and holidays do not hammer the vendor.
     """
-    if curr_date_dt.date() < today_date.date():
-        return False
-    return time.time() - os.path.getmtime(data_file) > OHLCV_CACHE_TTL_SECONDS
+    old_enough = (
+        time.time() - os.path.getmtime(data_file) > OHLCV_CACHE_TTL_SECONDS
+    )
+    if curr_date_dt.date() >= today_date.date():
+        return old_enough
+    if (
+        require_exact_date
+        and cached is not None
+        and not _has_ohlcv_day(cached, curr_date_dt)
+    ):
+        return old_enough
+    return False
 
 
 def load_ohlcv(symbol: str, curr_date: str) -> pd.DataFrame:
@@ -196,7 +269,13 @@ def load_ohlcv(symbol: str, curr_date: str) -> pd.DataFrame:
         if (
             not cached.empty
             and "Close" in cached.columns
-            and not _needs_same_day_refresh(data_file, curr_date_dt, today_date)
+            and not _needs_same_day_refresh(
+                data_file,
+                curr_date_dt,
+                today_date,
+                cached=cached,
+                require_exact_date=bool(crypto_base(canonical)),
+            )
         ):
             data = cached
 
@@ -226,6 +305,11 @@ def load_ohlcv(symbol: str, curr_date: str) -> pd.DataFrame:
     # Reject a stale frame (latest row far older than curr_date) rather than
     # feeding year-old prices into indicators (#1021).
     _assert_ohlcv_not_stale(data, curr_date, symbol, canonical)
+
+    # Crypto trades every UTC calendar day. If the requested completed candle is
+    # absent even after the bounded cache refresh above, fail explicitly rather
+    # than silently calculating indicators from the prior day.
+    _assert_crypto_cutoff_available(data, curr_date, symbol, canonical)
 
     return data
 
@@ -267,4 +351,6 @@ class StockstatsUtils:
             indicator_value = matching_rows[indicator].values[0]
             return indicator_value
         else:
+            if crypto_base(symbol):
+                return f"N/A: completed crypto daily candle {curr_date_str} is unavailable"
             return "N/A: Not a trading day (weekend or holiday)"

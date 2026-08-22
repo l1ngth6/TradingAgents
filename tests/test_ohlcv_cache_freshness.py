@@ -51,10 +51,115 @@ def test_recent_cache_is_not_refetched(tmp_path):
 
 @pytest.mark.unit
 def test_historical_request_always_uses_cache(tmp_path):
-    # Past dates are immutable: never refetch, however old the file is.
+    # Ordinary past stock dates are immutable: never refetch, however old the file is.
     past = pd.Timestamp("2026-05-01")
     f = _write(tmp_path, age_seconds=STALE, last_date="2026-04-30")
     assert su._needs_same_day_refresh(f, past, TODAY) is False
+
+
+@pytest.mark.unit
+def test_missing_crypto_cutoff_cache_refreshes_after_ttl(tmp_path):
+    cutoff = pd.Timestamp("2026-07-17")
+    f = _write(tmp_path, age_seconds=STALE, last_date="2026-07-16")
+    cached = pd.read_csv(f)
+
+    assert su._needs_same_day_refresh(
+        f,
+        cutoff,
+        TODAY,
+        cached=cached,
+        require_exact_date=True,
+    ) is True
+
+
+@pytest.mark.unit
+def test_missing_crypto_cutoff_cache_respects_ttl(tmp_path):
+    cutoff = pd.Timestamp("2026-07-17")
+    f = _write(tmp_path, last_date="2026-07-16")
+    cached = pd.read_csv(f)
+
+    assert su._needs_same_day_refresh(
+        f,
+        cutoff,
+        TODAY,
+        cached=cached,
+        require_exact_date=True,
+    ) is False
+
+
+@pytest.mark.unit
+def test_complete_crypto_cutoff_cache_is_reused(tmp_path):
+    cutoff = pd.Timestamp("2026-07-17")
+    f = _write(tmp_path, age_seconds=STALE, last_date="2026-07-17")
+    cached = pd.read_csv(f)
+
+    assert su._needs_same_day_refresh(
+        f,
+        cutoff,
+        TODAY,
+        cached=cached,
+        require_exact_date=True,
+    ) is False
+
+
+@pytest.mark.unit
+def test_load_ohlcv_refetches_missing_prior_day_crypto_candle(tmp_path, monkeypatch):
+    monkeypatch.setattr(su, "get_config", lambda: {"data_cache_dir": str(tmp_path)})
+    monkeypatch.setattr(su, "current_market_date", lambda _asset_type: TODAY.date())
+
+    start = (TODAY - pd.DateOffset(years=5)).strftime("%Y-%m-%d")
+    end = (TODAY + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
+    cache_file = tmp_path / f"BTC-USD-YFin-data-{start}-{end}.csv"
+    pd.DataFrame({"Date": ["2026-07-16"], "Close": [100.0]}).to_csv(cache_file, index=False)
+    old = time.time() - STALE
+    os.utime(cache_file, (old, old))
+    calls = []
+
+    def _fake_download(*_args, **_kwargs):
+        calls.append(1)
+        return pd.DataFrame(
+            {
+                "Open": [100.0, 110.0],
+                "High": [105.0, 115.0],
+                "Low": [95.0, 105.0],
+                "Close": [102.0, 112.0],
+                "Volume": [10, 20],
+            },
+            index=pd.DatetimeIndex(["2026-07-16", "2026-07-17"], name="Date"),
+        )
+
+    monkeypatch.setattr(su.yf, "download", _fake_download)
+
+    out = su.load_ohlcv("BTC-USD", "2026-07-17")
+
+    assert calls
+    assert out["Date"].max().date().isoformat() == "2026-07-17"
+
+
+@pytest.mark.unit
+def test_load_ohlcv_rejects_older_crypto_candle_after_download(tmp_path, monkeypatch):
+    monkeypatch.setattr(su, "get_config", lambda: {"data_cache_dir": str(tmp_path)})
+    monkeypatch.setattr(su, "current_market_date", lambda _asset_type: TODAY.date())
+
+    def _incomplete_download(*_args, **_kwargs):
+        return pd.DataFrame(
+            {
+                "Open": [100.0],
+                "High": [105.0],
+                "Low": [95.0],
+                "Close": [102.0],
+                "Volume": [10],
+            },
+            index=pd.DatetimeIndex(["2026-07-16"], name="Date"),
+        )
+
+    monkeypatch.setattr(su.yf, "download", _incomplete_download)
+
+    with pytest.raises(
+        su.NoMarketDataError,
+        match="completed crypto daily candle 2026-07-17",
+    ):
+        su.load_ohlcv("BTC-USD", "2026-07-17")
 
 
 @pytest.mark.unit

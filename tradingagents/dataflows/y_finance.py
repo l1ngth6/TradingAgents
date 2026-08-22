@@ -8,6 +8,7 @@ from dateutil.relativedelta import relativedelta
 from tradingagents.market_time import market_timestamp
 
 from .stockstats_utils import (
+    _assert_crypto_cutoff_available,
     StockstatsUtils,
     _assert_ohlcv_not_stale,
     filter_financials_by_date,
@@ -52,6 +53,7 @@ def get_YFin_data_online(
     # formatted into the report. Raises NoMarketDataError, which the router
     # turns into one clear unavailable signal (#1021).
     _assert_ohlcv_not_stale(data, end_date, symbol, canonical)
+    _assert_crypto_cutoff_available(data, end_date, symbol, canonical)
 
     # Round numerical values to 2 decimal places for cleaner display
     numeric_columns = ["Open", "High", "Low", "Close", "Adj Close"]
@@ -178,7 +180,11 @@ def get_stock_stats_indicators_window(
             if date_str in indicator_data:
                 indicator_value = indicator_data[date_str]
             else:
-                indicator_value = "N/A: Not a trading day (weekend or holiday)"
+                indicator_value = (
+                    "N/A: crypto daily candle unavailable from the market-data vendor"
+                    if crypto_base(symbol)
+                    else "N/A: Not a trading day (weekend or holiday)"
+                )
 
             date_values.append((date_str, indicator_value))
             current_dt = current_dt - relativedelta(days=1)

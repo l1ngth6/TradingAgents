@@ -10,6 +10,7 @@ import pytest
 import tradingagents.dataflows.stockstats_utils as su
 import tradingagents.dataflows.y_finance as yfin
 from tradingagents.dataflows.config import set_config
+from tradingagents.dataflows.symbol_utils import NoMarketDataError
 
 
 @pytest.mark.unit
@@ -37,6 +38,30 @@ def test_get_yfin_requests_inclusive_end(monkeypatch):
     assert captured["end"] == "2025-05-10"
     # Header still reflects the requested range, not the internal +1 day.
     assert "to 2025-05-09" in out
+
+
+@pytest.mark.unit
+def test_get_yfin_crypto_requires_exact_completed_candle(monkeypatch):
+    class FakeTicker:
+        def __init__(self, symbol):
+            pass
+
+        def history(self, start, end):
+            return pd.DataFrame(
+                {
+                    "Open": [1.0],
+                    "High": [2.0],
+                    "Low": [0.5],
+                    "Close": [1.5],
+                    "Volume": [10],
+                },
+                index=pd.DatetimeIndex(["2026-08-20"], name="Date"),
+            )
+
+    monkeypatch.setattr(yfin.yf, "Ticker", FakeTicker)
+
+    with pytest.raises(NoMarketDataError, match="completed crypto daily candle 2026-08-21"):
+        yfin.get_YFin_data_online("BTC-USD", "2026-08-01", "2026-08-21")
 
 
 @pytest.mark.unit

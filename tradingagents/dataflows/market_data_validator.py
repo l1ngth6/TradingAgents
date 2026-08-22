@@ -15,7 +15,10 @@ from collections.abc import Iterable
 import pandas as pd
 from stockstats import wrap
 
-from tradingagents.dataflows.stockstats_utils import load_ohlcv
+from tradingagents.dataflows.stockstats_utils import (
+    _assert_crypto_cutoff_available,
+    load_ohlcv,
+)
 from tradingagents.market_time import completed_daily_cutoff_for_symbol
 
 # A fixed, common indicator set so the snapshot is the same shape every run.
@@ -44,6 +47,10 @@ def _verified_rows(symbol: str, curr_date: str) -> pd.DataFrame:
     df = df[df["Date"] <= pd.to_datetime(curr_date)].sort_values("Date")
     if df.empty:
         raise ValueError(f"No OHLCV rows on or before {curr_date} for {symbol}.")
+    # ``load_ohlcv`` enforces this too, but the verification path rechecks its
+    # input defensively. A completed crypto candle may not fall back to an older
+    # row the way an equity cutoff can fall on a weekend or exchange holiday.
+    _assert_crypto_cutoff_available(df, curr_date, symbol)
     return df
 
 
@@ -92,9 +99,11 @@ def build_verified_market_snapshot(
     lines = [
         f"## Verified market data snapshot for {symbol.upper()}",
         "",
-        f"- Requested analysis date: {curr_date}",
+        f"- Requested completed-candle cutoff: {curr_date}",
         f"- Latest trading row used: {latest_date}",
         "- This is completed daily-candle data. Rows after this closed-candle cutoff are excluded.",
+        "- Verification method: deterministic calculation independent of the LLM; "
+        "this is not an independent market-data vendor.",
         "",
         "### Latest verified OHLCV row",
         "",
