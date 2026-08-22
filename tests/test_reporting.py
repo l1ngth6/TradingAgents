@@ -16,6 +16,7 @@ def _state():
         "investment_debate_state": {"judge_decision": "RM PLAN"},
         "trader_investment_plan": "TRADE",
         "risk_debate_state": {"judge_decision": "PM DECISION"},
+        "portfolio_context": {"status": "holding", "side": "long", "exposure_pct": 20},
     }
 
 
@@ -31,6 +32,7 @@ def test_write_report_tree_creates_files(tmp_path):
     complete = out.read_text()
     assert "Trading Analysis Report: AAPL" in complete
     assert "MKT" in complete and "PM DECISION" in complete
+    assert "Portfolio context: status=holding; side=long; exposure_pct=20" in complete
 
 
 @pytest.mark.unit

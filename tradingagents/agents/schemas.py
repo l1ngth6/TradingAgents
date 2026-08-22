@@ -65,6 +65,18 @@ class TraderAction(str, Enum):
     SELL = "Sell"
 
 
+class PositionAction(str, Enum):
+    """Position-aware action kept separate from the directional market rating."""
+
+    OPEN = "Open"
+    ADD = "Add"
+    MAINTAIN = "Maintain"
+    REDUCE = "Reduce"
+    EXIT = "Exit"
+    AVOID = "Avoid"
+    CONDITIONAL = "Conditional"
+
+
 # ---------------------------------------------------------------------------
 # Research Manager
 # ---------------------------------------------------------------------------
@@ -96,10 +108,10 @@ class ResearchPlan(BaseModel):
     )
     strategic_actions: str = Field(
         description=(
-            "Concrete steps for the trader to implement the recommendation, "
-            "including conditional sizing guidance consistent with the rating. "
-            "Do not invent a current holding or arbitrary buy/sell fraction when "
-            "portfolio context was not supplied."
+            "A position-independent market plan for the trader: entry conditions, "
+            "invalidation levels, and execution considerations consistent with the "
+            "rating. Do not assume a current holding or prescribe a fraction of an "
+            "unknown portfolio; the Trader will apply portfolio context later."
         ),
     )
 
@@ -228,8 +240,31 @@ class PortfolioDecision(BaseModel):
 
     rating: PortfolioRating = Field(
         description=(
-            "The final position rating. Exactly one of Buy / Overweight / Hold / "
-            "Underweight / Sell, picked based on the analysts' debate."
+            "The final market stance. Exactly one of Buy / Overweight / Hold / "
+            "Underweight / Sell. It must not silently encode whether the user is "
+            "currently flat or holding."
+        ),
+    )
+    position_action: PositionAction = Field(
+        description=(
+            "The action for the supplied position context: Open / Add / Maintain / "
+            "Reduce / Exit / Avoid. Use Conditional when the position is unknown."
+        ),
+    )
+    action_if_flat: str | None = Field(
+        default=None,
+        description=(
+            "Required only when current position is unknown: concrete action for a "
+            "user who is flat, including entry conditions or a decision to avoid."
+        ),
+    )
+    action_if_holding: str | None = Field(
+        default=None,
+        description=(
+            "Required only when current position is unknown: concrete action for a "
+            "user already holding, without inventing cost basis or position size. "
+            "Distinguish long and short holdings if the direction is also unknown "
+            "and would materially change the action."
         ),
     )
     executive_summary: str = Field(
@@ -295,6 +330,8 @@ def render_pm_decision(decision: PortfolioDecision, forced_horizon: str | None =
     parts = [
         f"**Rating**: {decision.rating.value}",
         "",
+        f"**Position Action**: {decision.position_action.value}",
+        "",
         f"**Executive Summary**: {decision.executive_summary}",
         "",
         f"**Investment Thesis**: {decision.investment_thesis}",
@@ -303,6 +340,10 @@ def render_pm_decision(decision: PortfolioDecision, forced_horizon: str | None =
         parts.extend(["", f"**Price Target**: {decision.price_target}"])
     if decision.current_position_assumption:
         parts.extend(["", f"**Current Position Assumption**: {decision.current_position_assumption}"])
+    if decision.action_if_flat:
+        parts.extend(["", f"**Action if Flat**: {decision.action_if_flat}"])
+    if decision.action_if_holding:
+        parts.extend(["", f"**Action if Holding**: {decision.action_if_holding}"])
     if decision.target_allocation:
         parts.extend(["", f"**Target Allocation**: {decision.target_allocation}"])
     if decision.hard_stop is not None:

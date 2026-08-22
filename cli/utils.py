@@ -8,6 +8,7 @@ from rich.console import Console
 from cli.models import AnalystType, AssetType
 from tradingagents.llm_clients.api_key_env import get_api_key_env
 from tradingagents.llm_clients.model_catalog import get_model_options
+from tradingagents.portfolio_context import normalize_portfolio_context
 
 console = Console()
 
@@ -212,6 +213,100 @@ def select_decision_horizon() -> str:
         console.print("\n[red]No decision horizon selected. Exiting...[/red]")
         exit(1)
     return choice
+
+
+def _optional_positive_number(
+    label: str, *, minimum: float, maximum: float
+) -> float | None:
+    """Prompt for an optional bounded number without collecting account values."""
+    def validate(value: str):
+        cleaned = value.strip().replace(",", "")
+        if cleaned.endswith("%"):
+            cleaned = cleaned[:-1].strip()
+        if not cleaned:
+            return True
+        try:
+            number = float(cleaned)
+        except ValueError:
+            return "Enter a number or leave blank."
+        return minimum <= number <= maximum or (
+            f"Enter a value from {minimum:g} to {maximum:g}."
+        )
+
+    answer = questionary.text(label, validate=validate).ask()
+    if answer is None:
+        console.print("\n[red]Portfolio input cancelled. Exiting...[/red]")
+        exit(1)
+    cleaned = answer.strip().replace(",", "")
+    if cleaned.endswith("%"):
+        cleaned = cleaned[:-1].strip()
+    return float(cleaned) if cleaned else None
+
+
+def get_portfolio_context() -> dict:
+    """Collect the optional, privacy-minimal position context for this task.
+
+    ``unknown`` is the default because assuming either a holding or a flat book
+    can turn the same market view into the wrong action. Account balances and
+    wallet details are intentionally never requested.
+    """
+    status = questionary.select(
+        "Select the [Current Position Context]:",
+        choices=[
+            questionary.Choice(
+                "Unknown / scenario — show actions for both flat and holding (recommended)",
+                value="unknown",
+            ),
+            questionary.Choice("Flat — no current position", value="flat"),
+            questionary.Choice(
+                "Holding — provide optional position details", value="holding"
+            ),
+        ],
+        instruction="\n- Used only by Trader, Risk Management, and Portfolio Manager",
+    ).ask()
+    if status is None:
+        console.print("\n[red]No portfolio context selected. Exiting...[/red]")
+        exit(1)
+    if status != "holding":
+        return normalize_portfolio_context({"status": status})
+
+    side = questionary.select(
+        "Current position side:",
+        choices=[
+            questionary.Choice("Long", value="long"),
+            questionary.Choice("Short", value="short"),
+            questionary.Choice("Unknown / mixed", value="unknown"),
+        ],
+    ).ask()
+    if side is None:
+        console.print("\n[red]Position side not selected. Exiting...[/red]")
+        exit(1)
+
+    context = {
+        "status": "holding",
+        "side": side,
+        "exposure_pct": _optional_positive_number(
+            "Current exposure as % of portfolio capital (blank if unknown):",
+            minimum=0.01,
+            maximum=100,
+        ),
+        "average_entry_price": _optional_positive_number(
+            "Average entry price in quote currency (blank if unknown):",
+            minimum=0.00000001,
+            maximum=1_000_000_000_000,
+        ),
+        "leverage": _optional_positive_number(
+            "Leverage multiple, e.g. 1 or 2.5 (blank if unknown):",
+            minimum=1,
+            maximum=1000,
+        ),
+        "max_loss_pct": _optional_positive_number(
+            "Maximum tolerable loss/drawdown % for this position (blank if unknown):",
+            minimum=0.01,
+            maximum=100,
+        ),
+    }
+    return normalize_portfolio_context(context)
 
 
 def select_crypto_intelligence_mode() -> str:

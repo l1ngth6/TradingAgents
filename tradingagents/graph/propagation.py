@@ -6,6 +6,7 @@ from tradingagents.agents.utils.agent_states import (
     InvestDebateState,
     RiskDebateState,
 )
+from tradingagents.portfolio_context import normalize_portfolio_context
 
 
 class Propagator:
@@ -51,7 +52,7 @@ class Propagator:
             "heatmap_input": heatmap_input,
             "heatmap_artifact": heatmap_artifact or {},
             "heatmap_visual_report": "",
-            "portfolio_context": portfolio_context or {},
+            "portfolio_context": normalize_portfolio_context(portfolio_context),
             "past_context": past_context,
             "investment_debate_state": InvestDebateState(
                 {

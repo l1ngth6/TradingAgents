@@ -176,6 +176,25 @@ python -m cli.main     # alternative: run directly from source
 ```
 You will see a screen where you can select your desired tickers, analysis date, LLM provider, research depth, and more.
 
+The CLI also asks for an optional **Portfolio Context** on every task:
+
+- `Unknown / scenario` (default) does not assume whether you own the asset. The
+  final report gives separate actions for a flat user and an existing holder.
+- `Flat` means no current position, so a neutral decision means wait/avoid rather
+  than “maintain” a nonexistent holding.
+- `Holding` asks for long/short side and optionally exposure percentage, average
+  entry price, leverage, and maximum tolerable loss/drawdown. Every numeric field
+  may be left blank. Account balance, wallet address, and position value are not
+  requested.
+
+Portfolio context is intentionally hidden from the Market/Sentiment/News/
+Fundamentals/Crypto analysts, the bull/bear debate, and the Research Manager.
+Those stages produce a position-independent market thesis. It becomes visible
+only to the Trader, Risk Management team, and Portfolio Manager, where the final
+report separates the five-tier market `Rating` from the position-aware
+`Position Action`. Changing portfolio context also changes the checkpoint run
+signature, preventing a resume from reusing state created for a different book.
+
 ### Markets and tickers
 
 TradingAgents works with any market Yahoo Finance covers, using the exchange-suffixed ticker. Company identity and the alpha benchmark resolve automatically per market.
@@ -420,9 +439,28 @@ state, decision = ta.propagate(
     decision_horizon="monthly",             # weekly | monthly | strategic
     crypto_intelligence_mode="shadow",      # disabled | shadow | advisory
     heatmap_input="https://example.com/heatmap.webp",  # optional local path or HTTPS
-    portfolio_context={"current_position": "unknown", "max_drawdown": "5%"},
+    portfolio_context={"status": "unknown"},  # unknown | flat | holding
 )
 ```
+
+For a known position, programmatic callers can provide the same optional fields
+as the CLI. Percentages are numeric values from 0 to 100; omitted values remain
+unknown rather than being inferred:
+
+```python
+portfolio_context = {
+    "status": "holding",
+    "side": "long",                 # long | short | unknown
+    "exposure_pct": 25,
+    "average_entry_price": 71000,
+    "leverage": 1,
+    "max_loss_pct": 6,
+}
+```
+
+The older `current_position`, `cost_basis`, `position_size_pct`, and
+`max_drawdown` programmatic keys are accepted as compatibility aliases, but new
+integrations should use the canonical fields above.
 
 Crypto analysis uses two explicit cutoffs. `analysis_as_of` allows the latest
 UTC date and live news/quotes/crypto-native context, while

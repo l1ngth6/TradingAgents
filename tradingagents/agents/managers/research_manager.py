@@ -29,14 +29,17 @@ def create_research_manager(llm):
 
 ---
 
-**Rating Scale** (use exactly one):
-- **Buy**: Strong conviction in the bull thesis; recommend taking or growing the position
-- **Overweight**: Constructive view; recommend gradually increasing exposure
-- **Hold**: Balanced view; recommend maintaining the current position
-- **Underweight**: Cautious view; recommend trimming exposure
-- **Sell**: Strong conviction in the bear thesis; recommend exiting or avoiding the position
+**Market Stance Scale** (use exactly one):
+- **Buy**: Strong conviction in the bull thesis
+- **Overweight**: Constructive view with favorable risk/reward
+- **Hold**: Balanced or neutral view
+- **Underweight**: Cautious view with unfavorable risk/reward
+- **Sell**: Strong conviction in the bear thesis
 
 Commit to a clear stance whenever the debate's strongest arguments warrant one; reserve Hold for situations where the evidence on both sides is genuinely balanced.
+Your plan must remain position-independent. Define market conditions, entry or
+invalidation levels, and execution considerations, but do not assume whether the
+user is flat or holding; the Trader and risk team receive that context later.
 
 ---
 

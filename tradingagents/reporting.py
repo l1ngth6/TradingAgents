@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from tradingagents.heatmap_input import copy_heatmap_artifact
+from tradingagents.portfolio_context import portfolio_context_summary
 
 
 def write_report_tree(final_state: dict, ticker: str, save_path) -> Path:
@@ -121,6 +122,7 @@ def write_report_tree(final_state: dict, ticker: str, save_path) -> Path:
         f"- Live information cutoff: {final_state.get('analysis_as_of', 'unknown')}",
         f"- Completed daily candle cutoff: {final_state.get('completed_daily_candle_date', 'unknown')}",
         f"- Decision horizon: {final_state.get('decision_horizon', 'monthly')}",
+        f"- Portfolio context: {portfolio_context_summary(final_state.get('portfolio_context'))}",
         f"- Crypto intelligence mode: {final_state.get('crypto_intelligence_mode', 'disabled')}",
     ]
     header = f"# Trading Analysis Report: {ticker}\n\n## Run metadata\n\n" + "\n".join(metadata) + "\n\n"

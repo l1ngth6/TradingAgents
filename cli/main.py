@@ -33,6 +33,7 @@ from cli.utils import (
     detect_asset_type,
     ensure_api_key,
     get_optional_heatmap_input,
+    get_portfolio_context,
     get_ticker,
     prompt_openai_compatible_url,
     resolve_backend_url,
@@ -53,6 +54,7 @@ from tradingagents.graph.analyst_execution import (
 )
 from tradingagents.graph.trading_graph import TradingAgentsGraph
 from tradingagents.market_time import current_market_date
+from tradingagents.portfolio_context import portfolio_context_summary
 from tradingagents.reporting import write_report_tree
 
 console = Console()
@@ -596,12 +598,21 @@ def get_user_selections():
     )
     decision_horizon = select_decision_horizon()
 
+    console.print(
+        create_question_box(
+            "Step 4: Portfolio Context (Optional)",
+            "Select flat, holding, or the default scenario mode. No account balance or wallet details are requested",
+            "Unknown / scenario",
+        )
+    )
+    portfolio_context = get_portfolio_context()
+
     crypto_intelligence_mode = "disabled"
     heatmap_input = ""
     if asset_type.value == "crypto":
         console.print(
             create_question_box(
-                "Step 4: Crypto Intelligence",
+                "Step 5: Crypto Intelligence",
                 "Choose whether the auxiliary crypto-native report is disabled, shadow-only, or advisory",
                 "Shadow",
             )
@@ -610,7 +621,7 @@ def get_user_selections():
         if crypto_intelligence_mode != "disabled":
             heatmap_input = get_optional_heatmap_input()
 
-    next_step = 5 if asset_type.value == "crypto" else 4
+    next_step = 6 if asset_type.value == "crypto" else 5
 
     # Output language (skipped when set via TRADINGAGENTS_OUTPUT_LANGUAGE)
     if os.environ.get("TRADINGAGENTS_OUTPUT_LANGUAGE"):
@@ -768,6 +779,7 @@ def get_user_selections():
         "asset_type": asset_type.value,
         "analysis_date": analysis_date,
         "decision_horizon": decision_horizon,
+        "portfolio_context": portfolio_context,
         "crypto_intelligence_mode": crypto_intelligence_mode,
         "heatmap_input": heatmap_input,
         "analysts": selected_analysts,
@@ -1179,6 +1191,10 @@ def run_analysis(checkpoint: bool | None = None):
         message_buffer.add_message(
             "System", f"Decision horizon: {selections['decision_horizon']}"
         )
+        message_buffer.add_message(
+            "System",
+            f"Portfolio context: {portfolio_context_summary(selections['portfolio_context'])}",
+        )
         if selections["asset_type"] == "crypto":
             message_buffer.add_message(
                 "System",
@@ -1213,19 +1229,20 @@ def run_analysis(checkpoint: bool | None = None):
             decision_horizon=selections["decision_horizon"],
             crypto_intelligence_mode=selections["crypto_intelligence_mode"],
             heatmap_input=selections["heatmap_input"],
+            portfolio_context=selections["portfolio_context"],
         )
         message_buffer.add_message(
             "System",
             f"Live information cutoff: {init_agent_state['analysis_as_of']}; "
             f"completed daily candle cutoff: {init_agent_state['completed_daily_candle_date']}",
         )
-        # Pass callbacks to graph config for tool execution tracking
-        # (LLM tracking is handled separately via LLM constructor)
-        args = graph.propagator.get_graph_args(callbacks=[stats_handler])
-
         # Stream the analysis
         trace = []
-        for chunk in graph.graph.stream(init_agent_state, **args):
+        # LLM tracking is handled by the constructor; tool callbacks and optional
+        # checkpoint-resume are handled by the graph's streaming wrapper.
+        for chunk in graph.stream_with_checkpoint(
+            init_agent_state, callbacks=[stats_handler]
+        ):
             # Process all messages in chunk, deduplicating by message ID
             for message in chunk.get("messages", []):
                 msg_id = getattr(message, "id", None)
@@ -1329,7 +1346,7 @@ def run_analysis(checkpoint: bool | None = None):
 
         # Streamed chunks are per-node deltas, not full state. Merge them
         # so every report field populated across the run is present.
-        final_state = {}
+        final_state = dict(init_agent_state)
         for chunk in trace:
             final_state.update(chunk)
 

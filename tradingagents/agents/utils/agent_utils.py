@@ -5,6 +5,7 @@ from typing import Any
 
 import yfinance as yf
 from langchain_core.messages import HumanMessage, RemoveMessage
+from tradingagents.portfolio_context import render_portfolio_context
 
 # Import tools from separate utility files
 from tradingagents.agents.utils.core_stock_tools import get_stock_data
@@ -56,6 +57,7 @@ __all__ = [
     "get_instrument_context_from_state",
     "get_crypto_advisory_context",
     "get_decision_context_from_state",
+    "get_portfolio_context_from_state",
     "get_language_instruction",
     "create_msg_delete",
 ]
@@ -222,18 +224,18 @@ def get_decision_context_from_state(state: Mapping[str, Any]) -> str:
         "daily close, and never treat an unfinished candle as a confirmed close, "
         "breakout, volume confirmation, or candlestick pattern."
     )
-    portfolio = state.get("portfolio_context")
-    if isinstance(portfolio, Mapping) and portfolio:
-        values = "; ".join(f"{key}={value}" for key, value in portfolio.items() if value not in (None, ""))
-        if values:
-            text += f" User-supplied portfolio context: {values}."
-    else:
-        text += (
-            " No current position, cost basis, leverage, or risk budget was supplied. "
-            "State assumptions explicitly and do not invent an existing position or an "
-            "arbitrary fraction to buy or sell."
-        )
     return text
+
+
+def get_portfolio_context_from_state(state: Mapping[str, Any]) -> str:
+    """Return position context for downstream execution and risk agents only.
+
+    Market analysts, the crypto auxiliary agent, bull/bear researchers, and the
+    Research Manager intentionally do not call this helper, keeping their market
+    thesis independent from the user's existing book.
+    """
+    portfolio = state.get("portfolio_context")
+    return render_portfolio_context(portfolio if isinstance(portfolio, Mapping) else None)
 
 
 def get_crypto_advisory_context(state: Mapping[str, Any], max_chars: int = 2400) -> str:

@@ -17,6 +17,7 @@ from tradingagents.agents.managers.research_manager import create_research_manag
 from tradingagents.agents.schemas import (
     PortfolioDecision,
     PortfolioRating,
+    PositionAction,
     ResearchPlan,
     SentimentBand,
     SentimentReport,
@@ -91,6 +92,7 @@ class TestNullishFloatCoercion:
     def test_pm_nullish_price_target_coerces_to_none(self):
         d = PortfolioDecision(
             rating=PortfolioRating.OVERWEIGHT,
+            position_action=PositionAction.CONDITIONAL,
             executive_summary="s",
             investment_thesis="t",
             price_target="N/A",

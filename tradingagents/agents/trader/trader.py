@@ -10,6 +10,7 @@ from tradingagents.agents.schemas import TraderProposal, render_trader_proposal
 from tradingagents.agents.utils.agent_utils import (
     get_instrument_context_from_state,
     get_language_instruction,
+    get_portfolio_context_from_state,
 )
 from tradingagents.agents.utils.structured import (
     NO_EXTERNAL_TOOLS,
@@ -24,6 +25,7 @@ def create_trader(llm):
     def trader_node(state, name):
         company_name = state["company_of_interest"]
         instrument_context = get_instrument_context_from_state(state)
+        portfolio_context = get_portfolio_context_from_state(state)
         investment_plan = state["investment_plan"]
 
         messages = [
@@ -34,8 +36,8 @@ def create_trader(llm):
                     "Based on your analysis, provide a specific recommendation to buy, sell, or hold. "
                     "Anchor your reasoning in the analysts' reports and the research plan. "
                     "Keep an unconditional hard stop separate from a conditional risk trigger, "
-                    "confirmation interval, and action on trigger. If portfolio context is absent, "
-                    "do not invent a current holding or arbitrary fraction to trade. "
+                    "confirmation interval, and action on trigger. Keep the independent market "
+                    "direction separate from the position-aware transaction. "
                     + NO_EXTERNAL_TOOLS
                     + get_language_instruction()
                 ),
@@ -44,7 +46,7 @@ def create_trader(llm):
                 "role": "user",
                 "content": (
                     f"Based on a comprehensive analysis by a team of analysts, here is an investment "
-                    f"plan tailored for {company_name}. {instrument_context} This plan incorporates "
+                    f"plan tailored for {company_name}. {instrument_context}\n\n{portfolio_context}\n\nThis plan incorporates "
                     f"insights from current technical market trends, macroeconomic indicators, and "
                     f"social media sentiment. Use this plan as a foundation for evaluating your next "
                     f"trading decision.\n\nProposed Investment Plan: {investment_plan}\n\n"

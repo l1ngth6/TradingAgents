@@ -40,6 +40,10 @@ from tradingagents.llm_clients import create_llm_client
 from tradingagents.llm_clients.agent_overrides import build_agent_llm_overrides
 from tradingagents.heatmap_input import HeatmapInputError, stage_heatmap_input
 from tradingagents.market_time import analysis_cutoffs, uses_utc_market_day, validate_analysis_date
+from tradingagents.portfolio_context import (
+    normalize_portfolio_context,
+    portfolio_context_fingerprint,
+)
 from tradingagents.reporting import write_report_tree
 
 from .checkpointer import checkpoint_step, clear_checkpoint, get_checkpointer, thread_id
@@ -390,12 +394,13 @@ class TradingAgentsGraph:
         decision_horizon: str | None = None,
         crypto_intelligence_mode: str | None = None,
         heatmap_input: str = "",
+        portfolio_context: dict[str, Any] | None = None,
     ) -> str:
-        """Graph-shape inputs that must invalidate a checkpoint if changed.
+        """Run-identity inputs that must invalidate a checkpoint if changed.
 
         Keyed into the checkpoint thread ID so a resume under a different analyst
-        selection, debate/risk depth, or asset mode starts fresh instead of
-        silently continuing the previous graph (#1089).
+        selection, debate/risk depth, asset mode, data input, horizon, or portfolio
+        context starts fresh instead of silently continuing incompatible state.
         """
         heatmap_signature = (
             hashlib.sha256(heatmap_input.encode("utf-8")).hexdigest()[:12]
@@ -410,6 +415,7 @@ class TradingAgentsGraph:
             f"horizon={decision_horizon or self.config.get('decision_horizon', 'monthly')}",
             f"crypto_mode={crypto_intelligence_mode or self.config.get('crypto_intelligence_mode', 'disabled')}",
             f"heatmap={heatmap_signature}",
+            f"portfolio={portfolio_context_fingerprint(portfolio_context)}",
         ])
 
     def propagate(
@@ -450,6 +456,7 @@ class TradingAgentsGraph:
             )
         if asset_type != "crypto":
             crypto_intelligence_mode = "disabled"
+        portfolio_context = normalize_portfolio_context(portfolio_context)
 
         self.ticker = company_name
 
@@ -471,6 +478,7 @@ class TradingAgentsGraph:
                     decision_horizon,
                     crypto_intelligence_mode,
                     heatmap_input,
+                    portfolio_context,
                 ),
             )
             if step is not None:
@@ -532,6 +540,7 @@ class TradingAgentsGraph:
             )
         if asset_type != "crypto":
             crypto_intelligence_mode = "disabled"
+        portfolio_context = normalize_portfolio_context(portfolio_context)
         cutoffs = analysis_cutoffs(trade_date, asset_type)
         heatmap_artifact = {}
         if asset_type == "crypto" and crypto_intelligence_mode != "disabled" and heatmap_input:
@@ -597,6 +606,7 @@ class TradingAgentsGraph:
                     decision_horizon,
                     crypto_intelligence_mode,
                     heatmap_input,
+                    portfolio_context,
                 ),
             )
             args.setdefault("config", {}).setdefault("configurable", {})["thread_id"] = tid
@@ -617,7 +627,7 @@ class TradingAgentsGraph:
                     trace.append(chunk)
             # Streamed chunks are per-node deltas. Merge them so the returned
             # state matches what graph.invoke() yields in the non-debug path.
-            final_state = {}
+            final_state = dict(init_agent_state)
             for chunk in trace:
                 final_state.update(chunk)
         else:
@@ -645,10 +655,57 @@ class TradingAgentsGraph:
                     decision_horizon,
                     crypto_intelligence_mode,
                     heatmap_input,
+                    portfolio_context,
                 ),
             )
 
         return final_state, self.process_signal(final_state["final_trade_decision"])
+
+    def stream_with_checkpoint(self, init_agent_state: dict[str, Any], callbacks=None):
+        """Stream a prebuilt state while honoring CLI checkpoint configuration.
+
+        The interactive CLI builds state itself so it can display live cutoffs and
+        per-agent progress. This wrapper gives that path the same checkpoint
+        isolation and cleanup as :meth:`propagate`, including the portfolio
+        fingerprint in the run signature.
+        """
+        args = self.propagator.get_graph_args(callbacks=callbacks)
+        if not self.config.get("checkpoint_enabled"):
+            yield from self.graph.stream(init_agent_state, **args)
+            return
+
+        ticker = str(init_agent_state["company_of_interest"])
+        trade_date = str(init_agent_state["trade_date"])
+        signature = self._run_signature(
+            str(init_agent_state.get("asset_type", "stock")),
+            str(init_agent_state.get("decision_horizon", "monthly")),
+            str(init_agent_state.get("crypto_intelligence_mode", "disabled")),
+            str(init_agent_state.get("heatmap_input", "")),
+            init_agent_state.get("portfolio_context"),
+        )
+        completed = False
+        with get_checkpointer(self.config["data_cache_dir"], ticker) as saver:
+            checkpointed_graph = self.workflow.compile(checkpointer=saver)
+            args.setdefault("config", {}).setdefault("configurable", {})[
+                "thread_id"
+            ] = thread_id(ticker, trade_date, signature)
+            step = checkpoint_step(
+                self.config["data_cache_dir"], ticker, trade_date, signature
+            )
+            if step is not None:
+                logger.info(
+                    "Resuming from step %d for %s on %s", step, ticker, trade_date
+                )
+            else:
+                logger.info("Starting fresh for %s on %s", ticker, trade_date)
+            try:
+                yield from checkpointed_graph.stream(init_agent_state, **args)
+                completed = True
+            finally:
+                if completed:
+                    clear_checkpoint(
+                        self.config["data_cache_dir"], ticker, trade_date, signature
+                    )
 
     def _log_state(self, trade_date, final_state):
         """Log the final state to a JSON file."""
@@ -659,6 +716,7 @@ class TradingAgentsGraph:
             "completed_daily_candle_date": final_state.get("completed_daily_candle_date"),
             "decision_horizon": final_state.get("decision_horizon"),
             "crypto_intelligence_mode": final_state.get("crypto_intelligence_mode"),
+            "portfolio_context": final_state.get("portfolio_context", {"status": "unknown"}),
             "heatmap_artifact": final_state.get("heatmap_artifact", {}),
             "heatmap_visual_report": final_state.get("heatmap_visual_report", ""),
             "market_report": final_state["market_report"],

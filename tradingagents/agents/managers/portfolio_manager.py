@@ -14,6 +14,7 @@ from tradingagents.agents.schemas import PortfolioDecision, render_pm_decision
 from tradingagents.agents.utils.agent_utils import (
     get_instrument_context_from_state,
     get_language_instruction,
+    get_portfolio_context_from_state,
 )
 from tradingagents.agents.utils.structured import (
     NO_EXTERNAL_TOOLS,
@@ -27,6 +28,8 @@ def create_portfolio_manager(llm):
 
     def portfolio_manager_node(state) -> dict:
         instrument_context = get_instrument_context_from_state(state)
+        portfolio_context = get_portfolio_context_from_state(state)
+        portfolio_status = state.get("portfolio_context", {}).get("status", "unknown")
 
         history = state["risk_debate_state"]["history"]
         risk_debate_state = state["risk_debate_state"]
@@ -53,14 +56,22 @@ def create_portfolio_manager(llm):
 
 {instrument_context}
 
+{portfolio_context}
+
 ---
 
 **Rating Scale** (use exactly one):
-- **Buy**: Strong conviction to enter or add to position
-- **Overweight**: Favorable outlook, gradually increase exposure
-- **Hold**: Maintain current position, no action needed
-- **Underweight**: Reduce exposure, take partial profits
-- **Sell**: Exit position or avoid entry
+- **Buy**: Strongly favorable market stance
+- **Overweight**: Constructive market stance
+- **Hold**: Neutral or balanced market stance
+- **Underweight**: Cautious market stance
+- **Sell**: Strongly unfavorable market stance
+
+The rating is the market stance, not an assumption about the user's position.
+Set the separate position action to Open/Add/Maintain/Reduce/Exit/Avoid as
+appropriate. When portfolio status is `unknown`, use Conditional and populate
+both `action_if_flat` and `action_if_holding`. For a known flat or holding
+status, leave those two scenario fields empty.
 
 **Context:**
 - Research Manager's investment plan: **{research_plan}**
@@ -74,8 +85,7 @@ def create_portfolio_manager(llm):
 Be decisive and ground every conclusion in specific evidence from the analysts.
 The final time horizon must be exactly `{horizon}`. Keep a hard stop distinct
 from a conditional risk trigger, its confirmation interval, and the action on
-trigger. If portfolio context is absent, say the current position is unknown
-and make allocation/action sizing conditional rather than inventing a holding.
+trigger. The normalized portfolio status for this run is `{portfolio_status}`.
 
 {NO_EXTERNAL_TOOLS}{get_language_instruction()}"""
 
