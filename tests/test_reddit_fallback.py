@@ -212,3 +212,26 @@ class TestCryptoSearchTerm:
 
     def test_equity_passes_through(self):
         assert self._captured_ticker("NVDA") == "NVDA"
+
+
+@pytest.mark.unit
+class TestAssetSpecificCommunities:
+    def test_equity_uses_stock_communities(self):
+        assert reddit.reddit_subreddits_for_ticker("NVDA") == (
+            "wallstreetbets", "stocks", "investing",
+        )
+
+    def test_bitcoin_uses_bitcoin_communities(self):
+        assert reddit.reddit_subreddits_for_ticker("BTC-USD") == (
+            "Bitcoin", "BitcoinMarkets", "CryptoCurrency",
+        )
+
+    def test_ethereum_uses_ethereum_communities(self):
+        assert reddit.reddit_subreddits_for_ticker("ETH/USDT") == (
+            "ethereum", "ethtrader", "CryptoCurrency",
+        )
+
+    def test_other_crypto_uses_general_crypto_communities(self):
+        assert reddit.reddit_subreddits_for_ticker("SOL-USD") == (
+            "CryptoCurrency", "CryptoMarkets", "altcoin",
+        )

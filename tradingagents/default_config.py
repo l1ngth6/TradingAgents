@@ -114,8 +114,8 @@ DEFAULT_CONFIG = _apply_env_overrides({
     # config or a JSON object through TRADINGAGENTS_AGENT_LLM_OVERRIDES.
     "agent_llm_overrides_enabled": False,
     "agent_llm_overrides": "",
-    # Optional supplemental X evidence for the Sentiment Analyst. The feature
-    # is inert until explicitly enabled and never replaces existing sources.
+    # Optional X evidence for the Sentiment Analyst. When explicitly enabled it
+    # participates as a formal source alongside the existing sources.
     # Credentials and endpoint are selected independently of the analyst's LLM.
     "x_search_enabled": False,
     # ``x_search_provider`` selects the Responses compatibility mode and the

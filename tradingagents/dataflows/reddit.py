@@ -43,10 +43,23 @@ _RSS = "https://www.reddit.com/r/{sub}/search.rss?{qs}"
 _UA = "tradingagents/0.2 (+https://github.com/TauricResearch/TradingAgents)"
 _ATOM_NS = {"atom": "http://www.w3.org/2005/Atom"}
 
-# Default subreddits ordered roughly by signal density for ticker-specific
-# discussion. wallstreetbets has the most volume but most noise; stocks /
-# investing trend more measured. Caller can override.
+# Default equity subreddits ordered roughly by signal density for ticker-specific
+# discussion. Crypto pairs use dedicated communities selected below instead of
+# being searched in stock-centric forums.
 DEFAULT_SUBREDDITS = ("wallstreetbets", "stocks", "investing")
+DEFAULT_CRYPTO_SUBREDDITS = ("CryptoCurrency", "CryptoMarkets", "altcoin")
+CRYPTO_SUBREDDITS_BY_BASE = {
+    "BTC": ("Bitcoin", "BitcoinMarkets", "CryptoCurrency"),
+    "ETH": ("ethereum", "ethtrader", "CryptoCurrency"),
+}
+
+
+def reddit_subreddits_for_ticker(ticker: str) -> tuple[str, ...]:
+    """Select stock or crypto communities without making network calls."""
+    base = crypto_base(ticker)
+    if not base:
+        return DEFAULT_SUBREDDITS
+    return CRYPTO_SUBREDDITS_BY_BASE.get(base, DEFAULT_CRYPTO_SUBREDDITS)
 
 
 def _search_qs(ticker: str, limit: int) -> str:
@@ -195,8 +208,8 @@ def fetch_reddit_posts(
     timeout: float = 10.0,
     inter_request_delay: float = 1.0,
 ) -> str:
-    """Fetch recent Reddit posts mentioning ``ticker`` across finance
-    subreddits and return them as a formatted plaintext block.
+    """Fetch recent Reddit posts mentioning ``ticker`` across the selected
+    communities and return them as a formatted plaintext block.
 
     ``inter_request_delay`` paces the (now RSS-only) per-subreddit requests to
     stay under Reddit's public per-IP rate limit; combined with the RSS-first

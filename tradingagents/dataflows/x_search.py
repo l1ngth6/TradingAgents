@@ -4,8 +4,8 @@ This module deliberately keeps X retrieval separate from the analyst LLM.  The
 configured Grok model acts only as a bounded search worker through a Responses
 API. The transport can use xAI directly or an explicitly selected
 OpenAI-compatible gateway, with an endpoint and credential independent from the
-main LLM; its evidence digest is then added to the existing Yahoo Finance,
-StockTwits, and Reddit prompt blocks.
+main LLM; its evidence digest is then added to the Yahoo Finance, StockTwits,
+and asset-specific Reddit prompt blocks as a formal source when enabled.
 
 The feature is disabled by default and degrades to a plaintext placeholder on
 missing credentials, transport errors, or malformed responses.  No caller has
@@ -82,8 +82,9 @@ Return a concise evidence digest for a downstream financial sentiment analyst.
 
 Selection requirements:
 - Include only posts with meaningful reach or discussion relative to the normal X activity for this ticker. Prioritize posts with substantial views, replies, reposts, quotes, or likes; omit isolated low-impact posts.
+- Exclude a post when every available engagement metric (views, replies, reposts, quotes, and likes) is zero. Do not use completely zero-interaction posts as sentiment evidence.
 - Prefer primary sources, recognized market participants, subject-matter experts, and posts that triggered visible discussion. Do not treat follower count alone as proof of relevance.
-- Give the exact X post URL, timestamp, author, and available engagement metrics for every cited post. If engagement cannot be verified, label it unavailable and do not present the post as high-impact evidence.
+- Give the exact X post URL, timestamp, author, and available engagement metrics for every cited post. If engagement cannot be verified, label it unavailable; include it only when it is a relevant primary-source factual announcement, and do not count it as demonstrated crowd sentiment.
 - Separate factual announcements from opinions, speculation, memes, coordinated promotion, and possible bot activity.
 - Cover both bullish and bearish evidence. Do not infer a broad consensus from a small or one-sided sample.
 - Do not include information posted outside the requested dates.
@@ -154,7 +155,7 @@ def fetch_x_sentiment(
     *,
     timeout: float | None = None,
 ) -> str:
-    """Fetch a conservative X sentiment evidence digest using Grok X Search.
+    """Fetch a bounded X sentiment evidence digest using Grok X Search.
 
     The global ``x_search_enabled`` switch is checked before credentials or
     network access.  This guarantees that the optional feature is completely

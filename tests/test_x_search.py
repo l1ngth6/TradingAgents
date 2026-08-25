@@ -94,6 +94,8 @@ def test_request_uses_x_search_dates_and_engagement_filter(monkeypatch):
         "type": "x_search", "from_date": "2026-01-08", "to_date": "2026-01-15",
     }]
     assert "omit isolated low-impact posts" in request_body["input"][0]["content"]
+    assert "every available engagement metric" in request_body["input"][0]["content"]
+    assert "Do not use completely zero-interaction posts" in request_body["input"][0]["content"]
     assert request_body["max_output_tokens"] == 9000
     assert seen["timeout"] == 17
     assert "High-engagement discussion was mixed." in result

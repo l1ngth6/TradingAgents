@@ -134,7 +134,10 @@ def test_sentiment_prompt_states_constraint(monkeypatch):
     # This agent binds no tools, so tool-range wording must not reappear.
     assert "tool-call date ranges" not in text
     assert "x evidence" in text
-    assert "Do not let X alone determine the overall band or score" in text
+    assert "formal sentiment source" in text
+    assert "without a predetermined lower" in text
+    assert "views, replies, reposts, quotes, and likes are all zero" in text
+    assert "r/wallstreetbets, r/stocks, r/investing" in text
 
 
 @pytest.mark.unit
@@ -169,6 +172,8 @@ def test_crypto_sentiment_prompt_includes_fear_greed(monkeypatch):
     assert "FNG historical evidence" in text
     assert "Bitcoin-centric" in text
     assert "not coin-specific" in text
+    assert "r/Bitcoin, r/BitcoinMarkets, r/CryptoCurrency" in text
+    assert "r/wallstreetbets" not in text
 
 
 @pytest.mark.unit

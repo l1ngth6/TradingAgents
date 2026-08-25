@@ -63,9 +63,18 @@ Our framework decomposes complex trading tasks into specialized roles.
 
 ### Analyst Team
 - Fundamentals Analyst: Evaluates company financials and performance metrics, identifying intrinsic values and potential red flags.
-- Sentiment Analyst: Aggregates news headlines, StockTwits, and Reddit chatter into a single sentiment read to gauge short-term market mood, with optional lower-weight X Search evidence through xAI or a compatible Responses gateway when explicitly enabled.
+- Sentiment Analyst: Aggregates news headlines, StockTwits, asset-specific Reddit communities, and Crypto Fear & Greed where applicable into a short-term sentiment read. When explicitly enabled, X Search participates as another formal source through xAI or a compatible Responses gateway.
 - News Analyst: Monitors global news and macroeconomic indicators, interpreting the impact of events on market conditions.
 - Technical Analyst: Utilizes technical indicators (like MACD and RSI) to detect trading patterns and forecast price movements.
+
+Reddit collection is asset-aware: equities use `r/wallstreetbets`, `r/stocks`,
+and `r/investing`; BTC uses `r/Bitcoin`, `r/BitcoinMarkets`, and
+`r/CryptoCurrency`; ETH uses its dedicated communities; other supported crypto
+pairs use general crypto communities. Enabled X Search is not assigned a fixed
+lower priority. Its evidence is assessed alongside the other available sources,
+but posts whose available engagement metrics are all zero are excluded and
+posts without verifiable engagement cannot establish crowd sentiment by
+themselves.
 
 <p align="center">
   <img src="assets/analyst.png" width="100%" style="display: inline-block; margin: 0 2%;">
