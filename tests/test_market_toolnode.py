@@ -22,6 +22,7 @@ def test_market_toolnode_can_execute_verified_snapshot():
     )
     # the other core market tools must remain too
     assert {"get_stock_data", "get_indicators"} <= market_tools
+    assert "get_crypto_intraday_snapshot" in market_tools
     assert "get_crypto_derivatives" not in market_tools
 
     crypto_tools = set(nodes["crypto_intelligence"].tools_by_name)
@@ -45,10 +46,11 @@ def test_stock_market_analyst_cannot_see_crypto_tools():
 
 
 @pytest.mark.unit
-def test_crypto_market_analyst_leaves_crypto_native_tools_to_auxiliary_agent():
+def test_crypto_market_analyst_adds_only_intraday_technical_snapshot():
     tool_names = {tool.name for tool in _tools_for_asset_type("crypto")}
     assert tool_names == {
         "get_stock_data",
         "get_indicators",
         "get_verified_market_snapshot",
+        "get_crypto_intraday_snapshot",
     }

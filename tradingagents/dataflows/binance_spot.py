@@ -1,10 +1,11 @@
-"""Binance Spot UTC-daily OHLCV fallback for cryptocurrency market analysis.
+"""Binance Spot closed-candle OHLCV for cryptocurrency market analysis.
 
 Yahoo remains the first configured market-data vendor for compatibility. When
 Yahoo has not yet published the exact completed crypto day, this module supplies
 the corresponding Binance Spot candle instead of silently substituting an older
 day. Binance ``Volume`` is base-asset volume and is kept together with Binance
-OHLC prices; aggregate Yahoo/Coin Metrics volume is never mixed into it.
+OHLC prices; aggregate Yahoo/Coin Metrics volume is never mixed into it. The
+same public API supplies isolated, completed 4h/1h tactical snapshots.
 """
 
 from __future__ import annotations
@@ -30,6 +31,10 @@ BINANCE_SPOT_BASES = (
 )
 REQUEST_TIMEOUT = 20
 KLINE_LIMIT = 1000
+INTRADAY_INTERVAL_MS = {
+    "1h": 60 * 60 * 1000,
+    "4h": 4 * 60 * 60 * 1000,
+}
 
 
 class BinanceSpotInvalidSymbolError(ValueError):
@@ -241,4 +246,173 @@ def get_binance_spot_indicators_window(
     return (
         f"# Indicator source: Binance Spot {binance_symbol} UTC daily candles; "
         f"Volume is base-asset volume (quote asset {quote}).\n\n{result}"
+    )
+
+
+def _fetch_intraday_kline_rows(
+    binance_symbol: str,
+    interval: str,
+    start_ms: int,
+    end_ms_exclusive: int,
+) -> tuple:
+    """Fetch a bounded intraday range; ``end_ms_exclusive`` is a candle boundary."""
+    interval_ms = INTRADAY_INTERVAL_MS.get(interval)
+    if interval_ms is None:
+        raise ValueError("interval must be 1h or 4h")
+    if start_ms >= end_ms_exclusive:
+        raise ValueError("intraday start must be before the end boundary")
+
+    cursor = start_ms
+    rows = []
+    while cursor < end_ms_exclusive:
+        payload = _request_klines(
+            {
+                "symbol": binance_symbol,
+                "interval": interval,
+                "startTime": cursor,
+                "endTime": end_ms_exclusive - 1,
+                "limit": KLINE_LIMIT,
+            }
+        )
+        if not payload:
+            break
+        rows.extend(payload)
+        try:
+            last_open_ms = int(payload[-1][0])
+        except (IndexError, TypeError, ValueError) as exc:
+            raise ValueError("Binance returned a malformed intraday kline row") from exc
+        next_cursor = last_open_ms + interval_ms
+        if next_cursor <= cursor:
+            raise ValueError("Binance intraday kline pagination did not advance")
+        cursor = next_cursor
+        if len(payload) < KLINE_LIMIT:
+            break
+    return tuple(tuple(row) for row in rows)
+
+
+def _parse_utc_boundary(value: str) -> datetime:
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError("intraday candle cutoff must be an ISO-8601 timestamp") from exc
+    if parsed.tzinfo is None:
+        raise ValueError("intraday candle cutoff must include a timezone")
+    return parsed.astimezone(timezone.utc)
+
+
+def get_binance_spot_intraday_frame(
+    symbol: str,
+    interval: str,
+    completed_end: str,
+    *,
+    lookback_bars: int = 240,
+) -> pd.DataFrame:
+    """Return only fully closed Binance Spot 1h/4h candles before a UTC boundary."""
+    interval_ms = INTRADAY_INTERVAL_MS.get(interval)
+    if interval_ms is None:
+        raise ValueError("interval must be 1h or 4h")
+    bars = max(2, min(int(lookback_bars), KLINE_LIMIT))
+    boundary = _parse_utc_boundary(completed_end)
+    boundary_ms = int(boundary.timestamp() * 1000)
+    now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+    safe_end_ms = min(boundary_ms, now_ms - (now_ms % interval_ms))
+    start_ms = safe_end_ms - bars * interval_ms
+
+    binance_symbol, quote = _binance_spot_symbol(symbol)
+    try:
+        raw_rows = _fetch_intraday_kline_rows(
+            binance_symbol, interval, start_ms, safe_end_ms
+        )
+    except BinanceSpotInvalidSymbolError as exc:
+        raise NoMarketDataError(
+            symbol, binance_symbol, f"Binance Spot does not list this pair ({exc})"
+        ) from exc
+
+    parsed = []
+    latest_close_ms = None
+    for row in raw_rows:
+        if len(row) < 9:
+            continue
+        try:
+            open_ms = int(row[0])
+            close_ms = int(row[6])
+            if open_ms < start_ms or close_ms >= safe_end_ms or close_ms > now_ms:
+                continue
+            latest_close_ms = max(latest_close_ms or close_ms, close_ms)
+            parsed.append(
+                {
+                    "Date": datetime.fromtimestamp(open_ms / 1000, tz=timezone.utc).replace(
+                        tzinfo=None
+                    ),
+                    "Close Time": datetime.fromtimestamp(
+                        (close_ms + 1) / 1000, tz=timezone.utc
+                    ).replace(tzinfo=None),
+                    "Open": row[1],
+                    "High": row[2],
+                    "Low": row[3],
+                    "Close": row[4],
+                    "Volume": row[5],
+                    "Quote Volume": row[7],
+                    "Trades": row[8],
+                }
+            )
+        except (TypeError, ValueError, OSError):
+            continue
+
+    if not parsed or latest_close_ms is None:
+        raise NoMarketDataError(
+            symbol,
+            binance_symbol,
+            f"no completed Binance Spot {interval} candles before {completed_end}",
+        )
+    if latest_close_ms + 1 != safe_end_ms:
+        latest = datetime.fromtimestamp(
+            (latest_close_ms + 1) / 1000, tz=timezone.utc
+        ).isoformat(timespec="seconds")
+        raise NoMarketDataError(
+            symbol,
+            binance_symbol,
+            f"latest completed {interval} candle ends at {latest}, not the required "
+            f"boundary {datetime.fromtimestamp(safe_end_ms / 1000, tz=timezone.utc).isoformat(timespec='seconds')}",
+        )
+
+    data = _clean_dataframe(pd.DataFrame(parsed)).sort_values("Date")
+    data.attrs["market_data_source"] = (
+        f"Binance Spot {binance_symbol} UTC {interval} candles; only rows closed "
+        f"before {datetime.fromtimestamp(safe_end_ms / 1000, tz=timezone.utc).isoformat(timespec='seconds')} "
+        f"are included; Volume is base-asset volume and Quote Volume is in {quote}"
+    )
+    data.attrs["binance_symbol"] = binance_symbol
+    data.attrs["quote_asset"] = quote
+    data.attrs["interval"] = interval
+    data.attrs["completed_end"] = datetime.fromtimestamp(
+        safe_end_ms / 1000, tz=timezone.utc
+    ).isoformat(timespec="seconds")
+    return data
+
+
+def get_binance_spot_last_price(symbol: str) -> dict[str, str]:
+    """Return a current public spot price, explicitly separate from closed candles."""
+    binance_symbol, quote = _binance_spot_symbol(symbol)
+    errors = []
+    for base_url in BINANCE_SPOT_BASES:
+        try:
+            response = requests.get(
+                f"{base_url}/api/v3/ticker/price",
+                params={"symbol": binance_symbol},
+                timeout=REQUEST_TIMEOUT,
+            )
+            response.raise_for_status()
+            payload = response.json()
+            price = float(payload["price"])
+            return {
+                "symbol": binance_symbol,
+                "quote_asset": quote,
+                "price": f"{price:.8f}",
+                "observed_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            }
+        except (requests.RequestException, KeyError, TypeError, ValueError) as exc:
+            errors.append(f"{base_url}: {exc}")
+    raise requests.RequestException(
+        "; ".join(errors) or "Binance Spot ticker request failed"
     )

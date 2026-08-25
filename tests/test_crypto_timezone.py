@@ -9,7 +9,12 @@ import cli.main as cli_main
 import tradingagents.dataflows.stockstats_utils as stockstats_utils
 from cli.models import AssetType
 from tradingagents.dataflows.config import set_config
-from tradingagents.market_time import current_market_date, validate_analysis_date
+from tradingagents.market_time import (
+    analysis_cutoffs,
+    crypto_intraday_cutoffs,
+    current_market_date,
+    validate_analysis_date,
+)
 
 
 @pytest.mark.unit
@@ -70,6 +75,39 @@ def test_crypto_selection_prompt_explains_utc_date():
     assert "UTC calendar date" in guidance
     assert "00:00 UTC" in guidance
     assert "08:00 Beijing time" in guidance
+
+
+@pytest.mark.unit
+def test_live_crypto_intraday_cutoffs_floor_each_closed_timeframe():
+    now = datetime(2026, 8, 22, 2, 37, 45, tzinfo=timezone.utc)
+    cutoffs = analysis_cutoffs("2026-08-22", "crypto", now=now)
+
+    assert cutoffs.completed_daily_candle_date == "2026-08-21"
+    assert cutoffs.completed_4h_candle_end == "2026-08-22T00:00:00+00:00"
+    assert cutoffs.completed_1h_candle_end == "2026-08-22T02:00:00+00:00"
+
+
+@pytest.mark.unit
+def test_historical_crypto_intraday_cutoffs_include_full_requested_day():
+    now = datetime(2026, 8, 25, 12, 0, tzinfo=timezone.utc)
+    cutoffs = analysis_cutoffs("2026-08-21", "crypto", now=now)
+
+    assert cutoffs.completed_daily_candle_date == "2026-08-21"
+    assert cutoffs.completed_4h_candle_end == "2026-08-22T00:00:00+00:00"
+    assert cutoffs.completed_1h_candle_end == "2026-08-22T00:00:00+00:00"
+
+
+@pytest.mark.unit
+def test_intraday_tool_cutoff_clamps_future_timestamp():
+    now = datetime(2026, 8, 22, 2, 37, tzinfo=timezone.utc)
+    cutoffs = crypto_intraday_cutoffs(
+        "2099-01-01T00:00:00+00:00", now=now
+    )
+
+    assert cutoffs == {
+        "4h": "2026-08-22T00:00:00+00:00",
+        "1h": "2026-08-22T02:00:00+00:00",
+    }
 
 
 @pytest.mark.unit

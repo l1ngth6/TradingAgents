@@ -7,8 +7,10 @@ explicitly covered.
 
 from datetime import datetime, timedelta, timezone
 
+import pandas as pd
 import pytest
 
+import tradingagents.dataflows.market_data_validator as market_validator
 from tradingagents.dataflows import (
     alternative_me,
     binance_crypto,
@@ -84,6 +86,85 @@ def test_binance_spot_uses_only_completed_utc_candles(monkeypatch):
     assert frame.iloc[-1]["Volume"] == 100
     assert frame.iloc[-1]["Quote Volume"] == "7600000"
     assert "Binance Spot BTCUSDT" in frame.attrs["market_data_source"]
+
+
+@pytest.mark.unit
+def test_binance_intraday_frame_excludes_unfinished_candle(monkeypatch):
+    first_open = _ms("2026-08-22T00:00:00")
+    first_close = _ms("2026-08-22T00:59:59.999000")
+    latest_open = _ms("2026-08-22T01:00:00")
+    latest_close = _ms("2026-08-22T01:59:59.999000")
+    unfinished_open = _ms("2026-08-22T02:00:00")
+    unfinished_close = _ms("2026-08-22T02:59:59.999000")
+    seen = []
+
+    def fake_request(params):
+        seen.append(params)
+        return [
+            [first_open, "100", "102", "99", "101", "10", first_close, "1010", 100],
+            [latest_open, "101", "104", "100", "103", "12", latest_close, "1236", 120],
+            [unfinished_open, "103", "110", "102", "109", "99", unfinished_close, "9999", 999],
+        ]
+
+    monkeypatch.setattr(binance_spot, "_request_klines", fake_request)
+
+    frame = binance_spot.get_binance_spot_intraday_frame(
+        "BTC/USDT",
+        "1h",
+        "2026-08-22T02:00:00+00:00",
+        lookback_bars=24,
+    )
+
+    assert list(frame["Close"]) == [101, 103]
+    assert 109 not in set(frame["Close"])
+    assert seen[0]["interval"] == "1h"
+    assert seen[0]["endTime"] == _ms("2026-08-22T01:59:59.999000")
+
+
+@pytest.mark.unit
+def test_intraday_snapshot_horizon_controls_timeframe_authority(monkeypatch):
+    calls = []
+
+    def fake_frame(_symbol, interval, completed_end, *, lookback_bars):
+        calls.append((interval, completed_end, lookback_bars))
+        frame = pd.DataFrame(
+            {
+                "Date": pd.to_datetime([
+                    "2026-08-21 12:00", "2026-08-21 16:00", "2026-08-21 20:00"
+                ]),
+                "Close Time": pd.to_datetime([
+                    "2026-08-21 16:00", "2026-08-21 20:00", "2026-08-22 00:00"
+                ]),
+                "Open": [100.0, 101.0, 102.0],
+                "High": [102.0, 103.0, 104.0],
+                "Low": [99.0, 100.0, 101.0],
+                "Close": [101.0, 102.0, 103.0],
+                "Volume": [10.0, 11.0, 12.0],
+                "Quote Volume": [1010.0, 1122.0, 1236.0],
+                "Trades": [100, 110, 120],
+            }
+        )
+        frame.attrs["market_data_source"] = f"Binance test {interval}"
+        frame.attrs["completed_end"] = completed_end
+        return frame
+
+    monkeypatch.setattr(
+        market_validator, "get_binance_spot_intraday_frame", fake_frame
+    )
+
+    strategic = market_validator.build_crypto_intraday_snapshot(
+        "BTC-USD", "2026-08-21T23:59:59+00:00", "strategic"
+    )
+    assert [call[0] for call in calls] == ["4h"]
+    assert "execution and cannot independently reverse" in strategic
+
+    calls.clear()
+    monthly = market_validator.build_crypto_intraday_snapshot(
+        "BTC-USD", "2026-08-21T23:59:59+00:00", "monthly"
+    )
+    assert [call[0] for call in calls] == ["4h", "1h"]
+    assert "Provisional live state" in monthly
+    assert "Omitted for a historical task" in monthly
 
 
 @pytest.mark.unit

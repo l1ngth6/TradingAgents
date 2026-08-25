@@ -25,7 +25,72 @@ class AnalysisCutoffs:
 
     analysis_as_of: str
     completed_daily_candle_date: str
+    completed_4h_candle_end: str
+    completed_1h_candle_end: str
     is_live_analysis: bool
+
+
+def _floor_utc_hours(instant: datetime, hours: int) -> datetime:
+    """Return the UTC boundary at which the last complete interval ended."""
+    instant = instant.astimezone(CRYPTO_MARKET_TIMEZONE)
+    return instant.replace(
+        hour=(instant.hour // hours) * hours,
+        minute=0,
+        second=0,
+        microsecond=0,
+    )
+
+
+def crypto_intraday_cutoffs(
+    analysis_as_of: str | datetime,
+    *,
+    historical_day_complete: bool | None = None,
+    now: datetime | None = None,
+) -> dict[str, str]:
+    """Resolve exclusive end boundaries for completed UTC 1h and 4h candles.
+
+    Live tasks floor the frozen ``analysis_as_of`` timestamp. Historical tasks
+    whose cutoff represents end-of-day include every bar of that requested UTC
+    day by using the following midnight as the exclusive boundary. A future
+    timestamp is clamped to ``now`` so malformed model tool arguments cannot
+    introduce look-ahead data.
+    """
+    if isinstance(analysis_as_of, datetime):
+        instant = analysis_as_of
+    else:
+        try:
+            instant = datetime.fromisoformat(str(analysis_as_of).replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise ValueError("analysis_as_of must be an ISO-8601 timestamp") from exc
+    if instant.tzinfo is None:
+        raise ValueError("analysis_as_of must include a timezone")
+    instant = instant.astimezone(CRYPTO_MARKET_TIMEZONE)
+
+    current = now or datetime.now(CRYPTO_MARKET_TIMEZONE)
+    if current.tzinfo is None:
+        raise ValueError("now must be timezone-aware")
+    current = current.astimezone(CRYPTO_MARKET_TIMEZONE)
+    if instant > current:
+        instant = current
+
+    if historical_day_complete is None:
+        historical_day_complete = (
+            instant.date() < current.date()
+            and instant.hour == 23
+            and instant.minute == 59
+            and instant.second == 59
+        )
+    reference = (
+        datetime.combine(
+            instant.date() + timedelta(days=1), time.min, CRYPTO_MARKET_TIMEZONE
+        )
+        if historical_day_complete
+        else instant
+    )
+    return {
+        "1h": _floor_utc_hours(reference, 1).isoformat(timespec="seconds"),
+        "4h": _floor_utc_hours(reference, 4).isoformat(timespec="seconds"),
+    }
 
 
 def _asset_type_value(asset_type: object) -> str:
@@ -84,7 +149,7 @@ def analysis_cutoffs(
     *,
     now: datetime | None = None,
 ) -> AnalysisCutoffs:
-    """Resolve the two time boundaries used by an analysis.
+    """Resolve the information and completed-candle boundaries for an analysis.
 
     Crypto may analyse the latest UTC date and use live information observed at
     task start, but every daily-candle calculation is capped at the most recent
@@ -102,11 +167,22 @@ def analysis_cutoffs(
             analysis_date, asset_type, market_today=today
         )
         live = requested == today
-        as_of = instant if live else datetime.combine(requested, time.max, CRYPTO_MARKET_TIMEZONE)
+        as_of = (
+            instant
+            if live
+            else datetime.combine(requested, time.max, CRYPTO_MARKET_TIMEZONE)
+        )
         completed = requested - timedelta(days=1) if live else requested
+        intraday = crypto_intraday_cutoffs(
+            as_of,
+            historical_day_complete=not live,
+            now=instant,
+        )
         return AnalysisCutoffs(
             analysis_as_of=as_of.isoformat(timespec="seconds"),
             completed_daily_candle_date=completed.isoformat(),
+            completed_4h_candle_end=intraday["4h"],
+            completed_1h_candle_end=intraday["1h"],
             is_live_analysis=live,
         )
 
@@ -119,6 +195,8 @@ def analysis_cutoffs(
     return AnalysisCutoffs(
         analysis_as_of=as_of.isoformat(timespec="seconds"),
         completed_daily_candle_date=requested.isoformat(),
+        completed_4h_candle_end="",
+        completed_1h_candle_end="",
         is_live_analysis=live,
     )
 

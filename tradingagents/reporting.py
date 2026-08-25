@@ -121,6 +121,8 @@ def write_report_tree(final_state: dict, ticker: str, save_path) -> Path:
         f"- Analysis date: {final_state.get('trade_date', 'unknown')}",
         f"- Live information cutoff: {final_state.get('analysis_as_of', 'unknown')}",
         f"- Completed daily candle cutoff: {final_state.get('completed_daily_candle_date', 'unknown')}",
+        f"- Completed 4h candle end: {final_state.get('completed_4h_candle_end') or 'not applicable'}",
+        f"- Completed 1h candle end: {final_state.get('completed_1h_candle_end') or 'not applicable'}",
         f"- Decision horizon: {final_state.get('decision_horizon', 'monthly')}",
         f"- Portfolio context: {portfolio_context_summary(final_state.get('portfolio_context'))}",
         f"- Crypto intelligence mode: {final_state.get('crypto_intelligence_mode', 'disabled')}",

@@ -1236,6 +1236,13 @@ def run_analysis(checkpoint: bool | None = None):
             f"Live information cutoff: {init_agent_state['analysis_as_of']}; "
             f"completed daily candle cutoff: {init_agent_state['completed_daily_candle_date']}",
         )
+        if selections["asset_type"] == "crypto":
+            message_buffer.add_message(
+                "System",
+                "Completed intraday candle cutoffs: "
+                f"4h ends {init_agent_state['completed_4h_candle_end']}; "
+                f"1h ends {init_agent_state['completed_1h_candle_end']}",
+            )
         # Stream the analysis
         trace = []
         # LLM tracking is handled by the constructor; tool callbacks and optional

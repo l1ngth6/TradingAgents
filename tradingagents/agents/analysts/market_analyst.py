@@ -1,6 +1,7 @@
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
 from tradingagents.agents.utils.agent_utils import (
+    get_crypto_intraday_snapshot,
     get_indicators,
     get_instrument_context_from_state,
     get_language_instruction,
@@ -16,6 +17,8 @@ def _tools_for_asset_type(asset_type: str) -> list:
         get_indicators,
         get_verified_market_snapshot,
     ]
+    if asset_type == "crypto":
+        tools.append(get_crypto_intraday_snapshot)
     return tools
 
 
@@ -24,6 +27,9 @@ def create_market_analyst(llm):
     def market_analyst_node(state):
         current_date = state["trade_date"]
         completed_date = state.get("completed_daily_candle_date", current_date)
+        completed_4h = state.get("completed_4h_candle_end", "unavailable")
+        completed_1h = state.get("completed_1h_candle_end", "unavailable")
+        decision_horizon = state.get("decision_horizon", "monthly")
         instrument_context = get_instrument_context_from_state(state)
 
         tools = _tools_for_asset_type(state.get("asset_type", "stock"))
@@ -32,13 +38,34 @@ def create_market_analyst(llm):
         if state.get("asset_type") == "crypto":
             crypto_instruction = """
 
-This is a cryptocurrency analysis. Restrict this report to completed daily
-OHLCV and traditional technical indicators; a separate Crypto Intelligence
+This is a cryptocurrency analysis. Keep the completed daily OHLCV and daily
+indicators as the higher-timeframe baseline; a separate Crypto Intelligence
 Analyst owns derivatives, order-flow proxies, options, on-chain, and heatmap
-evidence. The analysis date uses UTC calendar days. Call every price/indicator
-tool with the completed daily-candle date, not the live analysis date. Never use
-or describe the current unfinished UTC daily candle as a close, confirmed
-breakout, volume confirmation, or candlestick pattern."""
+evidence. The analysis date and candle boundaries use UTC.
+
+Call get_stock_data, get_indicators, and get_verified_market_snapshot with the
+completed daily-candle date, never the live analysis date. Also call
+get_crypto_intraday_snapshot exactly once with the task's exact symbol,
+analysis_as_of timestamp, and decision_horizon. That deterministic tool may use
+only candles closed by the supplied 4h/1h boundaries and keeps the current spot
+price isolated as provisional live context.
+
+Timeframe authority:
+- weekly: daily defines the broader regime, 4h is the primary tactical view,
+  and 1h is execution/protection timing;
+- monthly: daily remains primary, 4h may adjust confidence, entries, stops, and
+  triggers, while 1h is execution/protection only;
+- strategic: daily/weekly structure remains primary and 4h only flags tactical
+  stress or improves execution.
+
+Never let a single 1h bar independently reverse a monthly/strategic stance. When
+daily and 4h conflict, report the conflict explicitly rather than forcing one
+combined signal. Never use or describe the unfinished UTC daily, 4h, or 1h
+candle as a close, confirmed breakout, volume confirmation, candlestick pattern,
+or input to formal indicators. A provisional live price may be described with
+its timestamp and distance from a completed close, but never relabeled as a
+candle close. Never mix Binance intraday volume with Yahoo daily volume or Coin
+Metrics cross-market activity."""
 
         system_message = (
             """You are a trading assistant tasked with analyzing financial markets. Your role is to select the **most relevant indicators** for a given market condition or trading strategy from the following list. The goal is to choose up to **8 indicators** that provide complementary insights without redundancy. Categories and each category's indicators are:
@@ -67,7 +94,7 @@ Volume-Based Indicators:
 
 - Select indicators that provide diverse and complementary information. Avoid redundancy (e.g., do not select both rsi and stochrsi). Also briefly explain why they are suitable for the given market context. When you tool call, please use the exact name of the indicators provided above as they are defined parameters, otherwise your call will fail. Please make sure to call get_stock_data first to retrieve the CSV that is needed to generate indicators. Then use get_indicators with the specific indicator names.
 
-Before writing the final report, call get_verified_market_snapshot for this ticker and the completed daily-candle date, and treat it as the source of truth for any exact OHLCV, price-level, or indicator-value claim. The snapshot is a deterministic calculation independent of the LLM, not a second independent market-data vendor; never describe it as cross-vendor confirmation. Call get_stock_data and every get_indicators invocation with an end/current date no later than that completed date. If another tool's output conflicts with the verified snapshot, flag the discrepancy rather than inventing a reconciled number. If the snapshot reports VERIFIED_MARKET_DATA_UNAVAILABLE, do not substitute an older crypto candle or use a conflicting row as the requested completed close. Do not claim historical validation, support/resistance bounces, or exact percentage moves unless they are directly supported by tool output with concrete dates and prices.
+Before writing the final report, call get_verified_market_snapshot for this ticker and the completed daily-candle date, and treat it as the source of truth for exact daily OHLCV, price-level, or daily indicator claims. For crypto, treat get_crypto_intraday_snapshot as the source of truth for exact 4h/1h claims. Both snapshots are deterministic calculations independent of the LLM, not independent market-data vendors; never describe them as cross-vendor confirmation. Call get_stock_data and every get_indicators invocation with an end/current date no later than the completed daily date. If another tool's output conflicts with the matching-timeframe snapshot, flag the discrepancy rather than inventing a reconciled number. If a snapshot reports unavailable, do not substitute an older crypto candle or fabricate values. Do not claim historical validation, support/resistance bounces, or exact percentage moves unless they are directly supported by tool output with concrete timestamps and prices.
 
 Write a very detailed and nuanced report of the trends you observe. Provide specific, actionable insights with supporting evidence to help traders make informed decisions."""
             + """ Make sure to append a Markdown table at the end of the report to organize key points in the report, organized and easy to read."""
@@ -86,7 +113,7 @@ Write a very detailed and nuanced report of the trends you observe. Provide spec
                     " If you or any other assistant has the FINAL TRANSACTION PROPOSAL: **BUY/HOLD/SELL** or deliverable,"
                     " prefix your response with FINAL TRANSACTION PROPOSAL: **BUY/HOLD/SELL** so the team knows to stop."
                     " You have access to the following tools: {tool_names}."
-                    " The analysis date is {current_date}, the live-information cutoff is {analysis_as_of}, and the last completed daily candle is {completed_date}. Use {completed_date} as the end date for every OHLCV/indicator tool call. {instrument_context}\n"
+                    " The analysis date is {current_date}, the live-information cutoff is {analysis_as_of}, the last completed daily candle is {completed_date}, the last completed 4h candle ends at {completed_4h}, and the last completed 1h candle ends at {completed_1h}. Use {completed_date} for every daily OHLCV/indicator tool call. For get_crypto_intraday_snapshot use analysis_as_of={analysis_as_of} and decision_horizon={decision_horizon} exactly. {instrument_context}\n"
                     "{system_message}",
                 ),
                 MessagesPlaceholder(variable_name="messages"),
@@ -98,6 +125,9 @@ Write a very detailed and nuanced report of the trends you observe. Provide spec
         prompt = prompt.partial(current_date=current_date)
         prompt = prompt.partial(analysis_as_of=state.get("analysis_as_of", current_date))
         prompt = prompt.partial(completed_date=completed_date)
+        prompt = prompt.partial(completed_4h=completed_4h)
+        prompt = prompt.partial(completed_1h=completed_1h)
+        prompt = prompt.partial(decision_horizon=decision_horizon)
         prompt = prompt.partial(instrument_context=instrument_context)
 
         chain = prompt | llm.bind_tools(tools)

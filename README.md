@@ -271,6 +271,30 @@ snapshot and technical indicators use the same fallback, so they cannot reject
 a candle that the market-data tool accepted or mix Yahoo aggregate volume into
 Binance prices. The fallback uses Binance's keyless
 [market-data-only REST endpoint](https://github.com/binance/binance-spot-api-docs/blob/master/faqs/market_data_only.md).
+
+For crypto tasks, the Market Analyst also receives a deterministic Binance Spot
+intraday snapshot. It contains only candles that have fully closed by the task's
+frozen UTC boundaries:
+
+- Weekly (3–7 days): daily defines the regime, 4h is the primary tactical
+  timeframe, and 1h is execution/protection timing.
+- Monthly (2–4 weeks): daily remains primary; 4h may adjust confidence, entry,
+  stops, and risk triggers; 1h is execution/protection context only.
+- Strategic (1–3 months): daily/weekly structure remains primary and only a
+  restrained 4h tactical/anomaly view is included.
+
+The snapshot calculates a fixed EMA/SMA/RSI/MACD/ATR/Bollinger set separately
+for each included timeframe and shows recent closed bars with explicit UTC open
+and end timestamps. It never appends an unfinished bar to an indicator series.
+For a current-date task, a Binance Spot last price may appear in a separate
+`Provisional live state` section with its actual observation timestamp. That
+price may be slightly later than task initialization and may only describe the
+current location relative to a completed close; it cannot be called a close,
+breakout/volume confirmation, candlestick pattern, or indicator input. Present-
+day quotes are omitted from historical tasks. Binance intraday volume remains
+venue-specific and is never merged with Yahoo daily volume or Coin Metrics
+cross-market activity.
+
 A single optional **Crypto Intelligence Analyst** owns the
 crypto-native cross-check so the core analysts do not duplicate work.
 At task initialization the CLI asks for `Disabled`, `Shadow`, or `Advisory`:
@@ -462,13 +486,15 @@ The older `current_position`, `cost_basis`, `position_size_pct`, and
 `max_drawdown` programmatic keys are accepted as compatibility aliases, but new
 integrations should use the canonical fields above.
 
-Crypto analysis uses two explicit cutoffs. `analysis_as_of` allows the latest
-UTC date and live news/quotes/crypto-native context, while
-`completed_daily_candle_date` is the most recent fully closed 00:00-00:00 UTC
-candle. Every SMA/EMA/RSI/MACD/Bollinger/ATR/volume/candlestick calculation is
-clamped to the latter, so a live price is never labeled as a daily close or a
-confirmed breakout. The CLI default and future-date validation follow UTC
-(08:00 in Beijing) rather than the host timezone.
+Crypto analysis uses separate information and candle cutoffs. `analysis_as_of`
+allows the latest UTC date and live news/quotes/crypto-native context;
+`completed_daily_candle_date` is the most recent fully closed 00:00–00:00 UTC
+daily candle; `completed_4h_candle_end` and `completed_1h_candle_end` are the
+exclusive UTC end boundaries for intraday analysis. Daily indicators remain
+clamped to the completed daily date, while intraday indicators use their own
+closed-bar series. A live price is therefore never labeled as a daily/4h/1h
+close or confirmed breakout. The CLI default and future-date validation follow
+UTC (08:00 in Beijing) rather than the host timezone.
 
 Because crypto trades 24/7, its completed-candle cutoff must have an exact daily
 row. A cache created shortly after 00:00 UTC may not yet contain the vendor's

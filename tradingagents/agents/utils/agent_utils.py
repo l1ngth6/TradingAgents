@@ -16,6 +16,9 @@ from tradingagents.agents.utils.crypto_data_tools import (
     get_crypto_onchain,
     get_crypto_options,
 )
+from tradingagents.agents.utils.crypto_intraday_tools import (
+    get_crypto_intraday_snapshot,
+)
 from tradingagents.agents.utils.fundamental_data_tools import (
     get_balance_sheet,
     get_cashflow,
@@ -41,6 +44,7 @@ __all__ = [
     "get_crypto_options",
     "get_crypto_onchain",
     "get_crypto_liquidations",
+    "get_crypto_intraday_snapshot",
     "get_indicators",
     "get_fundamentals",
     "get_balance_sheet",
@@ -219,11 +223,20 @@ def get_decision_context_from_state(state: Mapping[str, Any]) -> str:
     text = (
         f"The selected decision horizon is {label}; keep every thesis, catalyst, "
         f"target, risk trigger, and outcome window within that horizon. Information "
-        f"may be observed through {as_of}. Completed daily OHLCV and all candle-based "
-        f"technical indicators are capped at {completed}. Never call a live price a "
+        f"may be observed through {as_of}. Completed daily OHLCV and all daily "
+        f"candle-based technical indicators are capped at {completed}. Never call a live price a "
         "daily close, and never treat an unfinished candle as a confirmed close, "
         "breakout, volume confirmation, or candlestick pattern."
     )
+    if state.get("asset_type") == "crypto":
+        four_hour = state.get("completed_4h_candle_end") or "unavailable"
+        one_hour = state.get("completed_1h_candle_end") or "unavailable"
+        text += (
+            f" Completed crypto intraday candles may supplement that daily view: "
+            f"the last closed 4h candle ends at {four_hour}, and the last closed "
+            f"1h candle ends at {one_hour}. Any later price is provisional live "
+            "state, not a closed candle or confirmation signal."
+        )
     return text
 
 

@@ -51,6 +51,8 @@ class AgentState(MessagesState):
     trade_date: Annotated[str, "What date we are trading at"]
     analysis_as_of: Annotated[str, "Live-information cutoff at task start"]
     completed_daily_candle_date: Annotated[str, "Last fully closed daily candle date"]
+    completed_4h_candle_end: Annotated[str, "Exclusive end of the last closed UTC 4h candle"]
+    completed_1h_candle_end: Annotated[str, "Exclusive end of the last closed UTC 1h candle"]
     decision_horizon: Annotated[str, "weekly, monthly, or strategic decision horizon"]
     crypto_intelligence_mode: Annotated[str, "disabled, shadow, or advisory"]
     heatmap_input: Annotated[str, "Optional original heatmap path or HTTPS URL"]

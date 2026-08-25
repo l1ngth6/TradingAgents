@@ -18,6 +18,7 @@ from tradingagents.agents.utils.agent_utils import (
     get_cashflow,
     get_crypto_derivatives,
     get_crypto_liquidations,
+    get_crypto_intraday_snapshot,
     get_crypto_onchain,
     get_crypto_options,
     get_fundamentals,
@@ -227,6 +228,7 @@ class TradingAgentsGraph:
                     # LLM and required by its prompt; must be executable here or
                     # the call fails and the model reports it "unavailable").
                     get_verified_market_snapshot,
+                    get_crypto_intraday_snapshot,
                 ]
             ),
             "crypto_intelligence": ToolNode(
@@ -562,6 +564,8 @@ class TradingAgentsGraph:
             instrument_context=instrument_context,
             analysis_as_of=cutoffs.analysis_as_of,
             completed_daily_candle_date=cutoffs.completed_daily_candle_date,
+            completed_4h_candle_end=cutoffs.completed_4h_candle_end,
+            completed_1h_candle_end=cutoffs.completed_1h_candle_end,
             decision_horizon=decision_horizon,
             crypto_intelligence_mode=crypto_intelligence_mode,
             heatmap_input=heatmap_input,
@@ -714,6 +718,8 @@ class TradingAgentsGraph:
             "trade_date": final_state["trade_date"],
             "analysis_as_of": final_state.get("analysis_as_of"),
             "completed_daily_candle_date": final_state.get("completed_daily_candle_date"),
+            "completed_4h_candle_end": final_state.get("completed_4h_candle_end"),
+            "completed_1h_candle_end": final_state.get("completed_1h_candle_end"),
             "decision_horizon": final_state.get("decision_horizon"),
             "crypto_intelligence_mode": final_state.get("crypto_intelligence_mode"),
             "portfolio_context": final_state.get("portfolio_context", {"status": "unknown"}),
