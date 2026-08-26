@@ -1,8 +1,9 @@
 """Tests for the shared rating heuristic and the SignalProcessor adapter.
 
 The Portfolio Manager produces a typed PortfolioDecision via structured
-output and renders it to markdown that always contains a ``**Rating**: X``
-header.  The deterministic heuristic in ``tradingagents.agents.utils.rating``
+output and renders it to markdown with a stock ``**Rating**: X`` or crypto
+``**Market Outlook**: X`` header. The deterministic heuristic in
+``tradingagents.agents.utils.rating``
 is therefore sufficient to extract the rating downstream — no second LLM
 call is needed — and SignalProcessor is now a thin adapter that delegates
 to it.
@@ -10,7 +11,11 @@ to it.
 
 import pytest
 
-from tradingagents.agents.utils.rating import RATINGS_5_TIER, parse_rating
+from tradingagents.agents.utils.rating import (
+    CRYPTO_OUTLOOKS_5_TIER,
+    RATINGS_5_TIER,
+    parse_rating,
+)
 from tradingagents.graph.signal_processing import SignalProcessor
 
 # ---------------------------------------------------------------------------
@@ -60,6 +65,13 @@ class TestParseRating:
         for r in RATINGS_5_TIER:
             assert parse_rating(f"Rating: {r}") == r
 
+    def test_all_crypto_outlooks_recognised(self):
+        for outlook in CRYPTO_OUTLOOKS_5_TIER:
+            assert parse_rating(f"**Market Outlook**: {outlook}") == outlook
+
+    def test_strong_crypto_outlook_is_not_reduced_to_single_word(self):
+        assert parse_rating("Market Outlook: **Strong Bearish**") == "Strong Bearish"
+
 
 # ---------------------------------------------------------------------------
 # SignalProcessor: thin adapter over the heuristic
@@ -72,6 +84,11 @@ class TestSignalProcessor:
         sp = SignalProcessor()
         md = "**Rating**: Overweight\n\n**Executive Summary**: Build gradually."
         assert sp.process_signal(md) == "Overweight"
+
+    def test_returns_crypto_outlook_from_pm_markdown(self):
+        sp = SignalProcessor()
+        md = "**Market Outlook**: Bullish\n\n**Executive Summary**: Wait for entry."
+        assert sp.process_signal(md) == "Bullish"
 
     def test_makes_no_llm_calls(self):
         """SignalProcessor must not invoke the LLM it was constructed with —

@@ -10,6 +10,12 @@ Breaking changes within the 0.x line are called out explicitly.
 
 ### Added
 
+- **Crypto-native market outlook labels.** Research Manager and Portfolio
+  Manager outputs use Strong Bullish / Bullish / Neutral / Bearish / Strong
+  Bearish only for crypto runs; stock ratings remain unchanged. Portfolio
+  actions now explicitly follow unknown, flat, and holding context, with
+  scenario perspectives instead of unconditional trades when position status
+  is unknown. Signal parsing and memory logs accept both vocabularies.
 - **Crypto-native optional data sources.** Crypto market analysis can now add
   historical-date-safe Binance USD-M funding, open-interest, positioning, and
   taker-flow data; the Sentiment Analyst also receives Alternative.me's

@@ -1,8 +1,8 @@
-"""Extract the 5-tier portfolio rating from the Portfolio Manager's decision.
+"""Extract the 5-tier market view from the Portfolio Manager's decision.
 
 The Portfolio Manager produces a typed ``PortfolioDecision`` via structured
-output and renders it to markdown that always carries a ``**Rating**: X``
-header (see :func:`tradingagents.agents.schemas.render_pm_decision`).  The
+output and renders it to markdown with either a stock ``**Rating**: X`` or a
+crypto ``**Market Outlook**: X`` header. The
 deterministic heuristic in :mod:`tradingagents.agents.utils.rating` is more
 than sufficient to extract that rating; no extra LLM call is needed.
 
@@ -18,7 +18,7 @@ from tradingagents.agents.utils.rating import parse_rating
 
 
 class SignalProcessor:
-    """Read the 5-tier rating out of a Portfolio Manager decision."""
+    """Read the 5-tier stock rating or crypto outlook from a PM decision."""
 
     def __init__(self, quick_thinking_llm: Any = None):
         # The LLM argument is accepted for backwards compatibility but no
@@ -27,5 +27,5 @@ class SignalProcessor:
         self.quick_thinking_llm = quick_thinking_llm
 
     def process_signal(self, full_signal: str) -> str:
-        """Return one of Buy / Overweight / Hold / Underweight / Sell."""
+        """Return the canonical stock rating or crypto outlook label."""
         return parse_rating(full_signal)

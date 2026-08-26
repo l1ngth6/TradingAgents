@@ -10,7 +10,12 @@ back gracefully to free-text generation.
 
 from __future__ import annotations
 
-from tradingagents.agents.schemas import PortfolioDecision, render_pm_decision
+from tradingagents.agents.schemas import (
+    CryptoPortfolioDecision,
+    PortfolioDecision,
+    render_crypto_pm_decision,
+    render_pm_decision,
+)
 from tradingagents.agents.utils.agent_utils import (
     get_instrument_context_from_state,
     get_language_instruction,
@@ -25,8 +30,12 @@ from tradingagents.agents.utils.structured import (
 
 def create_portfolio_manager(llm):
     structured_llm = bind_structured(llm, PortfolioDecision, "Portfolio Manager")
+    crypto_structured_llm = bind_structured(
+        llm, CryptoPortfolioDecision, "Portfolio Manager (crypto)"
+    )
 
     def portfolio_manager_node(state) -> dict:
+        is_crypto = state.get("asset_type") == "crypto"
         instrument_context = get_instrument_context_from_state(state)
         portfolio_context = get_portfolio_context_from_state(state)
         portfolio_status = state.get("portfolio_context", {}).get("status", "unknown")
@@ -52,6 +61,47 @@ def create_portfolio_manager(llm):
             horizon_labels["monthly"],
         )
 
+        rating_scale = (
+            """**Crypto Market Outlook Scale** (use exactly one):
+- **Strong Bullish**: Strongly favorable directional outlook
+- **Bullish**: Constructive directional outlook
+- **Neutral**: Balanced or directionally inconclusive outlook
+- **Bearish**: Cautious directional outlook
+- **Strong Bearish**: Strongly unfavorable directional outlook
+
+Use directional crypto-market language only. Do not use Buy, Overweight, Hold,
+Underweight, or Sell as the market outlook. In a free-text response, label this
+field exactly **Market Outlook**."""
+            if is_crypto
+            else """**Rating Scale** (use exactly one):
+- **Buy**: Strongly favorable market stance
+- **Overweight**: Constructive market stance
+- **Hold**: Neutral or balanced market stance
+- **Underweight**: Cautious market stance
+- **Sell**: Strongly unfavorable market stance"""
+        )
+        position_guidance = {
+            "unknown": (
+                "The current position is unknown. Use Conditional as the position "
+                "action, do not issue an unconditional buy/sell/add/reduce instruction, "
+                "and populate both action_if_flat and action_if_holding as separate "
+                "scenario perspectives."
+            ),
+            "flat": (
+                "The user explicitly reported no current position. Use only Open or "
+                "Avoid as the position action, and leave action_if_flat and "
+                "action_if_holding empty."
+            ),
+            "holding": (
+                "The user explicitly reported an existing position. Use Add, Maintain, "
+                "Reduce, or Exit as appropriate, and leave action_if_flat and "
+                "action_if_holding empty."
+            ),
+        }.get(
+            portfolio_status,
+            "Treat the current position as unknown and use scenario mode.",
+        )
+
         prompt = f"""As the Portfolio Manager, synthesize the risk analysts' debate and deliver the final trading decision.
 
 {instrument_context}
@@ -60,18 +110,11 @@ def create_portfolio_manager(llm):
 
 ---
 
-**Rating Scale** (use exactly one):
-- **Buy**: Strongly favorable market stance
-- **Overweight**: Constructive market stance
-- **Hold**: Neutral or balanced market stance
-- **Underweight**: Cautious market stance
-- **Sell**: Strongly unfavorable market stance
+{rating_scale}
 
-The rating is the market stance, not an assumption about the user's position.
-Set the separate position action to Open/Add/Maintain/Reduce/Exit/Avoid as
-appropriate. When portfolio status is `unknown`, use Conditional and populate
-both `action_if_flat` and `action_if_holding`. For a known flat or holding
-status, leave those two scenario fields empty.
+The market view is independent from assumptions about the user's position.
+Keep the separate position action conditional on the supplied portfolio status.
+{position_guidance}
 
 **Context:**
 - Research Manager's investment plan: **{research_plan}**
@@ -89,11 +132,18 @@ trigger. The normalized portfolio status for this run is `{portfolio_status}`.
 
 {NO_EXTERNAL_TOOLS}{get_language_instruction()}"""
 
+        render_decision = (
+            render_crypto_pm_decision if is_crypto else render_pm_decision
+        )
         final_trade_decision = invoke_structured_or_freetext(
-            structured_llm,
+            crypto_structured_llm if is_crypto else structured_llm,
             llm,
             prompt,
-            lambda decision: render_pm_decision(decision, forced_horizon=horizon),
+            lambda decision: render_decision(
+                decision,
+                forced_horizon=horizon,
+                portfolio_status=portfolio_status,
+            ),
             "Portfolio Manager",
         )
 

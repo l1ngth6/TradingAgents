@@ -42,7 +42,7 @@ def _coerce_optional_float(value):
 
 
 class PortfolioRating(str, Enum):
-    """5-tier rating used by the Research Manager and Portfolio Manager."""
+    """5-tier stock rating used by the Research Manager and Portfolio Manager."""
 
     BUY = "Buy"
     OVERWEIGHT = "Overweight"
@@ -51,13 +51,27 @@ class PortfolioRating(str, Enum):
     SELL = "Sell"
 
 
+class CryptoMarketOutlook(str, Enum):
+    """Directional 5-tier outlook used only for cryptocurrency analysis.
+
+    Unlike Overweight / Underweight, these labels do not imply a benchmark
+    allocation or an existing position in the asset.
+    """
+
+    STRONG_BULLISH = "Strong Bullish"
+    BULLISH = "Bullish"
+    NEUTRAL = "Neutral"
+    BEARISH = "Bearish"
+    STRONG_BEARISH = "Strong Bearish"
+
+
 class TraderAction(str, Enum):
     """3-tier transaction direction used by the Trader.
 
     The Trader's job is to translate the Research Manager's investment plan
     into a concrete transaction proposal: should the desk execute a Buy, a
-    Sell, or sit on Hold this round.  Position sizing and the nuanced
-    Overweight / Underweight calls happen later at the Portfolio Manager.
+    Sell, or sit on Hold this round. Position sizing and the final market view
+    happen later at the Portfolio Manager, using asset-appropriate labels.
     """
 
     BUY = "Buy"
@@ -116,10 +130,33 @@ class ResearchPlan(BaseModel):
     )
 
 
+class CryptoResearchPlan(ResearchPlan):
+    """Research plan with crypto-native, position-independent outlook labels."""
+
+    recommendation: CryptoMarketOutlook = Field(
+        description=(
+            "The directional cryptocurrency market outlook. Exactly one of Strong "
+            "Bullish / Bullish / Neutral / Bearish / Strong Bearish. It must not "
+            "imply a benchmark allocation or assume an existing position."
+        ),
+    )
+
+
 def render_research_plan(plan: ResearchPlan) -> str:
     """Render a ResearchPlan to markdown for storage and the trader's prompt context."""
     return "\n".join([
         f"**Recommendation**: {plan.recommendation.value}",
+        "",
+        f"**Rationale**: {plan.rationale}",
+        "",
+        f"**Strategic Actions**: {plan.strategic_actions}",
+    ])
+
+
+def render_crypto_research_plan(plan: CryptoResearchPlan) -> str:
+    """Render a crypto plan without stock allocation terminology."""
+    return "\n".join([
+        f"**Market Outlook**: {plan.recommendation.value}",
         "",
         f"**Rationale**: {plan.rationale}",
         "",
@@ -247,8 +284,9 @@ class PortfolioDecision(BaseModel):
     )
     position_action: PositionAction = Field(
         description=(
-            "The action for the supplied position context: Open / Add / Maintain / "
-            "Reduce / Exit / Avoid. Use Conditional when the position is unknown."
+            "The action for the supplied position context. Use Conditional when the "
+            "position is unknown; Open or Avoid when explicitly flat; and Add, "
+            "Maintain, Reduce, or Exit only when an existing position was supplied."
         ),
     )
     action_if_flat: str | None = Field(
@@ -269,8 +307,10 @@ class PortfolioDecision(BaseModel):
     )
     executive_summary: str = Field(
         description=(
-            "A concise action plan covering entry strategy, position sizing, "
-            "key risk levels, and time horizon. Two to four sentences."
+            "A concise plan covering entry strategy, position sizing when justified "
+            "by supplied portfolio context, key risk levels, and time horizon. When "
+            "position status is unknown, keep flat and holding actions conditional. "
+            "Two to four sentences."
         ),
     )
     investment_thesis: str = Field(
@@ -319,7 +359,24 @@ class PortfolioDecision(BaseModel):
         return _coerce_optional_float(v)
 
 
-def render_pm_decision(decision: PortfolioDecision, forced_horizon: str | None = None) -> str:
+class CryptoPortfolioDecision(PortfolioDecision):
+    """Portfolio decision using crypto-native directional outlook labels."""
+
+    rating: CryptoMarketOutlook = Field(
+        description=(
+            "The final directional cryptocurrency market outlook. Exactly one of "
+            "Strong Bullish / Bullish / Neutral / Bearish / Strong Bearish. It must "
+            "remain independent from the user's current position and must not use "
+            "benchmark-allocation language such as Overweight or Underweight."
+        ),
+    )
+
+
+def render_pm_decision(
+    decision: PortfolioDecision,
+    forced_horizon: str | None = None,
+    portfolio_status: str | None = None,
+) -> str:
     """Render a PortfolioDecision back to the markdown shape the rest of the system expects.
 
     Memory log, CLI display, and saved report files all read this markdown,
@@ -327,10 +384,22 @@ def render_pm_decision(decision: PortfolioDecision, forced_horizon: str | None =
     ``**Executive Summary**``, ``**Investment Thesis**``) that downstream
     parsers and the report writers already handle.
     """
+    # The prompt tells the model which actions fit each portfolio state; the
+    # renderer also makes the output shape deterministic. Unknown state cannot
+    # become an unconditional transaction, while known states cannot leak stale
+    # scenario fields from a weak structured-output provider.
+    normalized_status = str(portfolio_status or "").strip().lower()
+    position_action = (
+        PositionAction.CONDITIONAL
+        if normalized_status == "unknown"
+        else decision.position_action
+    )
+    include_scenarios = normalized_status in {"", "unknown"}
+
     parts = [
         f"**Rating**: {decision.rating.value}",
         "",
-        f"**Position Action**: {decision.position_action.value}",
+        f"**Position Action**: {position_action.value}",
         "",
         f"**Executive Summary**: {decision.executive_summary}",
         "",
@@ -340,9 +409,9 @@ def render_pm_decision(decision: PortfolioDecision, forced_horizon: str | None =
         parts.extend(["", f"**Price Target**: {decision.price_target}"])
     if decision.current_position_assumption:
         parts.extend(["", f"**Current Position Assumption**: {decision.current_position_assumption}"])
-    if decision.action_if_flat:
+    if include_scenarios and decision.action_if_flat:
         parts.extend(["", f"**Action if Flat**: {decision.action_if_flat}"])
-    if decision.action_if_holding:
+    if include_scenarios and decision.action_if_holding:
         parts.extend(["", f"**Action if Holding**: {decision.action_if_holding}"])
     if decision.target_allocation:
         parts.extend(["", f"**Target Allocation**: {decision.target_allocation}"])
@@ -358,6 +427,20 @@ def render_pm_decision(decision: PortfolioDecision, forced_horizon: str | None =
     if horizon:
         parts.extend(["", f"**Time Horizon**: {horizon}"])
     return "\n".join(parts)
+
+
+def render_crypto_pm_decision(
+    decision: CryptoPortfolioDecision,
+    forced_horizon: str | None = None,
+    portfolio_status: str | None = None,
+) -> str:
+    """Render a crypto decision with Market Outlook as the directional field."""
+    rendered = render_pm_decision(
+        decision,
+        forced_horizon=forced_horizon,
+        portfolio_status=portfolio_status,
+    )
+    return rendered.replace("**Rating**:", "**Market Outlook**:", 1)
 
 
 # ---------------------------------------------------------------------------

@@ -200,9 +200,14 @@ Portfolio context is intentionally hidden from the Market/Sentiment/News/
 Fundamentals/Crypto analysts, the bull/bear debate, and the Research Manager.
 Those stages produce a position-independent market thesis. It becomes visible
 only to the Trader, Risk Management team, and Portfolio Manager, where the final
-report separates the five-tier market `Rating` from the position-aware
-`Position Action`. Changing portfolio context also changes the checkpoint run
-signature, preventing a resume from reusing state created for a different book.
+report separates the market view from the position-aware `Position Action`.
+Stock runs retain the five-tier `Rating` (Buy / Overweight / Hold / Underweight /
+Sell). Crypto runs instead use the directional `Market Outlook` (Strong Bullish /
+Bullish / Neutral / Bearish / Strong Bearish), avoiding benchmark-allocation
+language for assets such as BTC. In scenario mode no unconditional transaction
+is assumed: the report gives separate flat and holding perspectives. Changing
+portfolio context also changes the checkpoint run signature, preventing a
+resume from reusing state created for a different book.
 
 ### Markets and tickers
 

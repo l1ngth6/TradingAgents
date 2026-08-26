@@ -15,6 +15,8 @@ from pydantic import ValidationError
 from tradingagents.agents.analysts.sentiment_analyst import create_sentiment_analyst
 from tradingagents.agents.managers.research_manager import create_research_manager
 from tradingagents.agents.schemas import (
+    CryptoMarketOutlook,
+    CryptoResearchPlan,
     PortfolioDecision,
     PortfolioRating,
     PositionAction,
@@ -23,6 +25,7 @@ from tradingagents.agents.schemas import (
     SentimentReport,
     TraderAction,
     TraderProposal,
+    render_crypto_research_plan,
     render_research_plan,
     render_sentiment_report,
     render_trader_proposal,
@@ -122,6 +125,16 @@ class TestRenderResearchPlan:
             )
             md = render_research_plan(p)
             assert f"**Recommendation**: {rating.value}" in md
+
+    def test_crypto_plan_uses_directional_market_outlook(self):
+        plan = CryptoResearchPlan(
+            recommendation=CryptoMarketOutlook.BEARISH,
+            rationale="Momentum is weakening.",
+            strategic_actions="Wait for confirmation before entering.",
+        )
+        md = render_crypto_research_plan(plan)
+        assert "**Market Outlook**: Bearish" in md
+        assert "Recommendation" not in md
 
 
 # ---------------------------------------------------------------------------
@@ -276,6 +289,23 @@ class TestResearchManagerAgent:
         prompt = captured["prompt"]
         for tier in ("Buy", "Overweight", "Hold", "Underweight", "Sell"):
             assert f"**{tier}**" in prompt, f"missing {tier} in prompt"
+
+    def test_crypto_uses_directional_outlook_only(self):
+        captured = {}
+        plan = CryptoResearchPlan(
+            recommendation=CryptoMarketOutlook.BULLISH,
+            rationale="Constructive spot demand.",
+            strategic_actions="Wait for a confirmed entry level.",
+        )
+        llm = _structured_rm_llm(captured, plan)
+        state = _make_rm_state()
+        state.update({"company_of_interest": "BTC-USD", "asset_type": "crypto"})
+        result = create_research_manager(llm)(state)
+        prompt = captured["prompt"]
+        assert "**Crypto Market Outlook Scale**" in prompt
+        assert "**Strong Bullish**" in prompt
+        assert "**Overweight**" not in prompt
+        assert "**Market Outlook**: Bullish" in result["investment_plan"]
 
     def test_falls_back_to_freetext_when_structured_unavailable(self):
         plain_response = "**Recommendation**: Sell\n\n**Rationale**: ...\n\n**Strategic Actions**: ..."

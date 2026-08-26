@@ -6,7 +6,13 @@ import pandas as pd
 import pytest
 
 from tradingagents.agents.managers.portfolio_manager import create_portfolio_manager
-from tradingagents.agents.schemas import PositionAction, PortfolioDecision, PortfolioRating
+from tradingagents.agents.schemas import (
+    CryptoMarketOutlook,
+    CryptoPortfolioDecision,
+    PositionAction,
+    PortfolioDecision,
+    PortfolioRating,
+)
 from tradingagents.agents.utils.memory import TradingMemoryLog
 from tradingagents.graph.propagation import Propagator
 from tradingagents.graph.reflection import Reflector
@@ -728,6 +734,49 @@ class TestPortfolioManagerInjection:
         assert "**Investment Thesis**: AI capex cycle" in md
         assert "**Price Target**: 215.0" in md
         assert "**Time Horizon**: 3-6 months" in md
+
+    def test_crypto_pm_uses_market_outlook_and_unknown_position_scenarios(self):
+        captured = {}
+        decision = CryptoPortfolioDecision(
+            rating=CryptoMarketOutlook.BEARISH,
+            position_action=PositionAction.CONDITIONAL,
+            action_if_flat="Avoid entry until momentum stabilizes.",
+            action_if_holding="Reduce only if the confirmed risk trigger fires.",
+            executive_summary="Keep the directional view separate from position actions.",
+            investment_thesis="Weak momentum outweighs otherwise stable spot demand.",
+        )
+        llm = _structured_pm_llm(captured, decision)
+        state = _make_pm_state()
+        state.update({
+            "company_of_interest": "BTC-USD",
+            "asset_type": "crypto",
+            "portfolio_context": {"status": "unknown"},
+        })
+        md = create_portfolio_manager(llm)(state)["final_trade_decision"]
+        assert "**Market Outlook**: Bearish" in md
+        assert "**Rating**" not in md
+        assert "**Position Action**: Conditional" in md
+        assert "**Action if Flat**" in md
+        assert "**Action if Holding**" in md
+        assert "do not issue an unconditional buy/sell/add/reduce" in captured["prompt"]
+        assert "**Underweight**" not in captured["prompt"]
+
+    @pytest.mark.parametrize(
+        ("status", "expected_guidance"),
+        [
+            ("flat", "Use only Open or Avoid"),
+            ("holding", "Use Add, Maintain, Reduce, or Exit"),
+        ],
+    )
+    def test_pm_position_action_guidance_follows_known_status(
+        self, status, expected_guidance
+    ):
+        captured = {}
+        llm = _structured_pm_llm(captured)
+        state = _make_pm_state()
+        state["portfolio_context"] = {"status": status}
+        create_portfolio_manager(llm)(state)
+        assert expected_guidance in captured["prompt"]
 
     def test_pm_falls_back_to_freetext_when_structured_unavailable(self):
         """If a provider does not support with_structured_output, the agent
