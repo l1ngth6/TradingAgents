@@ -348,6 +348,34 @@ def get_optional_heatmap_input() -> str:
     return value.strip()
 
 
+def get_optional_heatmap_inputs() -> dict[str, str]:
+    """Collect independent upper- and lower-side liquidation-map screenshots."""
+    inputs = {}
+    prompts = {
+        "upper": (
+            "Optional upper-side liquidation strength/map image path or HTTPS URL "
+            "(blank to skip):"
+        ),
+        "lower": (
+            "Optional lower-side liquidation strength/map image path or HTTPS URL "
+            "(blank to skip):"
+        ),
+    }
+    for role, prompt in prompts.items():
+        value = questionary.text(
+            prompt,
+            validate=lambda x: (
+                not x.strip()
+                or x.strip().lower().startswith("https://")
+                or Path(x.strip()).expanduser().is_file()
+                or "Enter an existing local image file, a public HTTPS URL, or leave blank."
+            ),
+        ).ask()
+        if value and value.strip():
+            inputs[role] = value.strip()
+    return inputs
+
+
 # Mainstream OpenRouter chat-LLM provider namespaces. We surface the newest
 # models from these rather than the universal-newest, which is dominated by
 # niche/experimental releases. These are the general-purpose chat providers;

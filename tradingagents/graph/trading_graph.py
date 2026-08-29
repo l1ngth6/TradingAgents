@@ -37,9 +37,13 @@ from tradingagents.agents.utils.memory import TradingMemoryLog
 from tradingagents.dataflows.config import set_config
 from tradingagents.dataflows.utils import safe_ticker_component
 from tradingagents.default_config import DEFAULT_CONFIG
+from tradingagents.heatmap_input import (
+    HeatmapInputError,
+    normalize_heatmap_inputs,
+    stage_heatmap_input,
+)
 from tradingagents.llm_clients import create_llm_client
 from tradingagents.llm_clients.agent_overrides import build_agent_llm_overrides
-from tradingagents.heatmap_input import HeatmapInputError, stage_heatmap_input
 from tradingagents.market_time import analysis_cutoffs, uses_utc_market_day, validate_analysis_date
 from tradingagents.portfolio_context import (
     normalize_portfolio_context,
@@ -397,6 +401,7 @@ class TradingAgentsGraph:
         crypto_intelligence_mode: str | None = None,
         heatmap_input: str = "",
         portfolio_context: dict[str, Any] | None = None,
+        heatmap_inputs: dict[str, str] | None = None,
     ) -> str:
         """Run-identity inputs that must invalidate a checkpoint if changed.
 
@@ -404,9 +409,11 @@ class TradingAgentsGraph:
         selection, debate/risk depth, asset mode, data input, horizon, or portfolio
         context starts fresh instead of silently continuing incompatible state.
         """
+        normalized_heatmaps = normalize_heatmap_inputs(heatmap_input, heatmap_inputs)
+        serialized_heatmaps = json.dumps(normalized_heatmaps, sort_keys=True, separators=(",", ":"))
         heatmap_signature = (
-            hashlib.sha256(heatmap_input.encode("utf-8")).hexdigest()[:12]
-            if heatmap_input
+            hashlib.sha256(serialized_heatmaps.encode("utf-8")).hexdigest()[:12]
+            if normalized_heatmaps
             else "none"
         )
         return "|".join([
@@ -429,6 +436,7 @@ class TradingAgentsGraph:
         decision_horizon: str | None = None,
         crypto_intelligence_mode: str | None = None,
         heatmap_input: str = "",
+        heatmap_inputs: dict[str, str] | None = None,
         portfolio_context: dict[str, Any] | None = None,
     ):
         """Run the trading agents graph for a company on a specific date.
@@ -481,6 +489,7 @@ class TradingAgentsGraph:
                     crypto_intelligence_mode,
                     heatmap_input,
                     portfolio_context,
+                    heatmap_inputs,
                 ),
             )
             if step is not None:
@@ -498,6 +507,7 @@ class TradingAgentsGraph:
                 decision_horizon=decision_horizon,
                 crypto_intelligence_mode=crypto_intelligence_mode,
                 heatmap_input=heatmap_input,
+                heatmap_inputs=heatmap_inputs,
                 portfolio_context=portfolio_context,
             )
         finally:
@@ -530,6 +540,7 @@ class TradingAgentsGraph:
         decision_horizon: str = "monthly",
         crypto_intelligence_mode: str = "disabled",
         heatmap_input: str = "",
+        heatmap_inputs: dict[str, str] | None = None,
         portfolio_context: dict[str, Any] | None = None,
         past_context: str = "",
     ) -> dict[str, Any]:
@@ -544,17 +555,26 @@ class TradingAgentsGraph:
             crypto_intelligence_mode = "disabled"
         portfolio_context = normalize_portfolio_context(portfolio_context)
         cutoffs = analysis_cutoffs(trade_date, asset_type)
-        heatmap_artifact = {}
-        if asset_type == "crypto" and crypto_intelligence_mode != "disabled" and heatmap_input:
-            try:
-                heatmap_artifact = stage_heatmap_input(
-                    heatmap_input,
-                    self.config["data_cache_dir"],
-                    str(trade_date),
-                )
-            except HeatmapInputError as exc:
-                logger.warning("Optional liquidation heatmap skipped: %s", exc)
-                heatmap_artifact = {"error": str(exc), "original_input": heatmap_input}
+        normalized_heatmaps = normalize_heatmap_inputs(heatmap_input, heatmap_inputs)
+        heatmap_artifacts = {}
+        if asset_type == "crypto" and crypto_intelligence_mode != "disabled":
+            for role, value in normalized_heatmaps.items():
+                try:
+                    artifact = stage_heatmap_input(
+                        value,
+                        self.config["data_cache_dir"],
+                        str(trade_date),
+                    )
+                    artifact["view"] = role
+                    heatmap_artifacts[role] = artifact
+                except HeatmapInputError as exc:
+                    logger.warning("Optional %s liquidation heatmap skipped: %s", role, exc)
+                    heatmap_artifacts[role] = {
+                        "error": str(exc),
+                        "original_input": value,
+                        "view": role,
+                    }
+        heatmap_artifact = heatmap_artifacts.get("overview", {})
         instrument_context = self.resolve_instrument_context(company_name, asset_type)
         return self.propagator.create_initial_state(
             company_name,
@@ -570,6 +590,10 @@ class TradingAgentsGraph:
             crypto_intelligence_mode=crypto_intelligence_mode,
             heatmap_input=heatmap_input,
             heatmap_artifact=heatmap_artifact,
+            # Keep the legacy singular representation singular so old callers
+            # do not present the same overview input through both state fields.
+            heatmap_inputs={} if heatmap_input else normalized_heatmaps,
+            heatmap_artifacts=heatmap_artifacts,
             portfolio_context=portfolio_context,
         )
 
@@ -581,6 +605,7 @@ class TradingAgentsGraph:
         decision_horizon: str = "monthly",
         crypto_intelligence_mode: str = "disabled",
         heatmap_input: str = "",
+        heatmap_inputs: dict[str, str] | None = None,
         portfolio_context: dict[str, Any] | None = None,
     ):
         """Execute the graph and write the resulting state to disk and memory log."""
@@ -595,6 +620,7 @@ class TradingAgentsGraph:
             decision_horizon=decision_horizon,
             crypto_intelligence_mode=crypto_intelligence_mode,
             heatmap_input=heatmap_input,
+            heatmap_inputs=heatmap_inputs,
             portfolio_context=portfolio_context,
         )
         args = self.propagator.get_graph_args()
@@ -611,6 +637,7 @@ class TradingAgentsGraph:
                     crypto_intelligence_mode,
                     heatmap_input,
                     portfolio_context,
+                    heatmap_inputs,
                 ),
             )
             args.setdefault("config", {}).setdefault("configurable", {})["thread_id"] = tid
@@ -660,6 +687,7 @@ class TradingAgentsGraph:
                     crypto_intelligence_mode,
                     heatmap_input,
                     portfolio_context,
+                    heatmap_inputs,
                 ),
             )
 
@@ -686,6 +714,7 @@ class TradingAgentsGraph:
             str(init_agent_state.get("crypto_intelligence_mode", "disabled")),
             str(init_agent_state.get("heatmap_input", "")),
             init_agent_state.get("portfolio_context"),
+            init_agent_state.get("heatmap_inputs"),
         )
         completed = False
         with get_checkpointer(self.config["data_cache_dir"], ticker) as saver:
@@ -724,6 +753,8 @@ class TradingAgentsGraph:
             "crypto_intelligence_mode": final_state.get("crypto_intelligence_mode"),
             "portfolio_context": final_state.get("portfolio_context", {"status": "unknown"}),
             "heatmap_artifact": final_state.get("heatmap_artifact", {}),
+            "heatmap_inputs": final_state.get("heatmap_inputs", {}),
+            "heatmap_artifacts": final_state.get("heatmap_artifacts", {}),
             "heatmap_visual_report": final_state.get("heatmap_visual_report", ""),
             "market_report": final_state["market_report"],
             "sentiment_report": final_state["sentiment_report"],

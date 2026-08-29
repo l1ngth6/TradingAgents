@@ -27,10 +27,38 @@ _MAGIC = (
     (b"GIF87a", "image/gif", ".gif"),
     (b"GIF89a", "image/gif", ".gif"),
 )
+HEATMAP_INPUT_ROLES = ("upper", "lower")
 
 
 class HeatmapInputError(ValueError):
     """The optional heatmap input was unsafe, inaccessible, or not an image."""
+
+
+def normalize_heatmap_inputs(
+    heatmap_input: str = "",
+    heatmap_inputs: dict[str, str] | None = None,
+) -> dict[str, str]:
+    """Normalize the new two-view input while preserving the legacy single image."""
+    legacy = str(heatmap_input or "").strip()
+    if heatmap_inputs is None:
+        return {"overview": legacy} if legacy else {}
+    if not isinstance(heatmap_inputs, dict):
+        raise ValueError("heatmap_inputs must be a mapping with upper/lower keys")
+
+    unknown = set(heatmap_inputs) - set(HEATMAP_INPUT_ROLES)
+    if unknown:
+        raise ValueError(
+            "heatmap_inputs only supports upper and lower keys; got "
+            + ", ".join(sorted(map(str, unknown)))
+        )
+    normalized = {
+        role: str(heatmap_inputs.get(role) or "").strip()
+        for role in HEATMAP_INPUT_ROLES
+        if str(heatmap_inputs.get(role) or "").strip()
+    }
+    if legacy and normalized:
+        raise ValueError("heatmap_input cannot be combined with heatmap_inputs")
+    return normalized or ({"overview": legacy} if legacy else {})
 
 
 def _ip_address(value: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address:
@@ -262,7 +290,11 @@ def stage_heatmap_input(value: str, cache_dir: str | Path, analysis_date: str) -
     return metadata
 
 
-def copy_heatmap_artifact(metadata: dict, destination_dir: str | Path) -> dict:
+def copy_heatmap_artifact(
+    metadata: dict,
+    destination_dir: str | Path,
+    role: str = "",
+) -> dict:
     """Copy a staged heatmap and provenance JSON into a saved report tree."""
     if not metadata or not metadata.get("local_path"):
         return metadata
@@ -271,11 +303,15 @@ def copy_heatmap_artifact(metadata: dict, destination_dir: str | Path) -> dict:
         return metadata
     destination_dir = Path(destination_dir)
     destination_dir.mkdir(parents=True, exist_ok=True)
-    copied = destination_dir / f"liquidation_heatmap{source.suffix}"
+    safe_role = "".join(char if char.isalnum() else "_" for char in role).strip("_")
+    basename = "liquidation_heatmap"
+    if safe_role and safe_role != "overview":
+        basename += f"_{safe_role}"
+    copied = destination_dir / f"{basename}{source.suffix}"
     shutil.copy2(source, copied)
     exported = dict(metadata)
     exported["report_artifact"] = copied.name
-    (destination_dir / "liquidation_heatmap.metadata.json").write_text(
+    (destination_dir / f"{basename}.metadata.json").write_text(
         json.dumps(exported, ensure_ascii=False, indent=2), encoding="utf-8"
     )
     return exported

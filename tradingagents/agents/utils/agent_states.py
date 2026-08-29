@@ -57,6 +57,8 @@ class AgentState(MessagesState):
     crypto_intelligence_mode: Annotated[str, "disabled, shadow, or advisory"]
     heatmap_input: Annotated[str, "Optional original heatmap path or HTTPS URL"]
     heatmap_artifact: Annotated[dict, "Validated local heatmap artifact metadata"]
+    heatmap_inputs: Annotated[dict, "Optional upper/lower heatmap paths or HTTPS URLs"]
+    heatmap_artifacts: Annotated[dict, "Validated upper/lower heatmap artifact metadata"]
     heatmap_visual_report: Annotated[str, "One-shot heatmap visual extraction text"]
     portfolio_context: Annotated[dict, "Optional user-supplied position and risk context"]
 

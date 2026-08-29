@@ -46,7 +46,12 @@ def write_report_tree(final_state: dict, ticker: str, save_path) -> Path:
         analyst_parts.append(
             ("Crypto Intelligence Analyst (Auxiliary)", final_state["crypto_intelligence_report"])
         )
-    if final_state.get("heatmap_artifact"):
+    heatmap_artifacts = final_state.get("heatmap_artifacts") or {}
+    if heatmap_artifacts:
+        analysts_dir.mkdir(exist_ok=True)
+        for role, artifact in heatmap_artifacts.items():
+            copy_heatmap_artifact(artifact, analysts_dir, role=role)
+    elif final_state.get("heatmap_artifact"):
         analysts_dir.mkdir(exist_ok=True)
         copy_heatmap_artifact(final_state["heatmap_artifact"], analysts_dir)
     if final_state.get("heatmap_visual_report"):

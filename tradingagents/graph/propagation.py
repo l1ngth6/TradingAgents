@@ -31,6 +31,8 @@ class Propagator:
         crypto_intelligence_mode: str = "disabled",
         heatmap_input: str = "",
         heatmap_artifact: dict[str, Any] | None = None,
+        heatmap_inputs: dict[str, str] | None = None,
+        heatmap_artifacts: dict[str, dict[str, Any]] | None = None,
         portfolio_context: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Create the initial state for the agent graph.
@@ -55,6 +57,8 @@ class Propagator:
             "crypto_intelligence_mode": crypto_intelligence_mode,
             "heatmap_input": heatmap_input,
             "heatmap_artifact": heatmap_artifact or {},
+            "heatmap_inputs": heatmap_inputs or {},
+            "heatmap_artifacts": heatmap_artifacts or {},
             "heatmap_visual_report": "",
             "portfolio_context": normalize_portfolio_context(portfolio_context),
             "past_context": past_context,

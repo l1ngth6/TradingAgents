@@ -440,13 +440,16 @@ it does not run or refresh the query, choose its parameters, verify freshness, o
 repair its SQL. Dune evidence therefore remains optional cross-validation rather
 than a primary signal.
 
-The CLI can also accept a local liquidation-heatmap image or public HTTPS image
-URL. The selected Crypto Intelligence model reads it once in a dedicated,
-tool-free multimodal request with `detail=original`. Only the resulting text,
-tagged `estimated_visual_extraction`, enters the subsequent numeric/tool-based
-analysis; the raw image is not carried through that loop. The image is hashed
-and copied into the saved report and can only cross-check numeric sources. It
-cannot independently alter the rating.
+The CLI can also accept separate upper-side and lower-side liquidation
+heatmap/map screenshots, each supplied as a local image or public HTTPS image
+URL. Either one may be omitted. The selected Crypto Intelligence model reads all
+valid screenshots together once in a dedicated, tool-free multimodal request
+with `detail=original`, so it can compare the nearest liquidation intensity on
+both sides even when the source UI cannot display both at once. Only the
+resulting combined text, tagged `estimated_visual_extraction`, enters the
+subsequent numeric/tool-based analysis; the raw images are not carried through
+that loop. Each image is hashed and copied into the saved report and can only
+cross-check numeric sources. It cannot independently alter the rating.
 
 Remote-image staging rejects loopback, private, link-local, and reserved DNS
 answers as an SSRF safeguard. Proxy/TUN clients such as Clash may intentionally
@@ -476,10 +479,16 @@ state, decision = ta.propagate(
     asset_type="crypto",
     decision_horizon="monthly",             # weekly | monthly | strategic
     crypto_intelligence_mode="shadow",      # disabled | shadow | advisory
-    heatmap_input="https://example.com/heatmap.webp",  # optional local path or HTTPS
+    heatmap_inputs={                                  # either/both are optional
+        "upper": "https://example.com/upper.webp",   # local path or public HTTPS
+        "lower": "https://example.com/lower.webp",
+    },
     portfolio_context={"status": "unknown"},  # unknown | flat | holding
 )
 ```
+
+The legacy `heatmap_input="..."` argument remains supported for a single
+unlabeled overview image. Do not combine it with `heatmap_inputs` in one call.
 
 For a known position, programmatic callers can provide the same optional fields
 as the CLI. Percentages are numeric values from 0 to 100; omitted values remain

@@ -32,7 +32,7 @@ from cli.utils import (
     confirm_ollama_endpoint,
     detect_asset_type,
     ensure_api_key,
-    get_optional_heatmap_input,
+    get_optional_heatmap_inputs,
     get_portfolio_context,
     get_ticker,
     prompt_openai_compatible_url,
@@ -608,7 +608,7 @@ def get_user_selections():
     portfolio_context = get_portfolio_context()
 
     crypto_intelligence_mode = "disabled"
-    heatmap_input = ""
+    heatmap_inputs = {}
     if asset_type.value == "crypto":
         console.print(
             create_question_box(
@@ -619,7 +619,7 @@ def get_user_selections():
         )
         crypto_intelligence_mode = select_crypto_intelligence_mode()
         if crypto_intelligence_mode != "disabled":
-            heatmap_input = get_optional_heatmap_input()
+            heatmap_inputs = get_optional_heatmap_inputs()
 
     next_step = 6 if asset_type.value == "crypto" else 5
 
@@ -781,7 +781,7 @@ def get_user_selections():
         "decision_horizon": decision_horizon,
         "portfolio_context": portfolio_context,
         "crypto_intelligence_mode": crypto_intelligence_mode,
-        "heatmap_input": heatmap_input,
+        "heatmap_inputs": heatmap_inputs,
         "analysts": selected_analysts,
         "research_depth": selected_research_depth,
         "llm_provider": selected_llm_provider.lower(),
@@ -1228,7 +1228,7 @@ def run_analysis(checkpoint: bool | None = None):
             asset_type=selections["asset_type"],
             decision_horizon=selections["decision_horizon"],
             crypto_intelligence_mode=selections["crypto_intelligence_mode"],
-            heatmap_input=selections["heatmap_input"],
+            heatmap_inputs=selections["heatmap_inputs"],
             portfolio_context=selections["portfolio_context"],
         )
         message_buffer.add_message(

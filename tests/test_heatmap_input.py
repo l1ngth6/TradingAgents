@@ -16,6 +16,29 @@ def _dns_result(address: str):
 
 
 @pytest.mark.unit
+def test_normalize_heatmap_inputs_supports_two_labeled_views_and_legacy_input():
+    assert heatmap_input.normalize_heatmap_inputs(
+        heatmap_inputs={"lower": " lower.png ", "upper": "https://example.com/upper.png"}
+    ) == {
+        "upper": "https://example.com/upper.png",
+        "lower": "lower.png",
+    }
+    assert heatmap_input.normalize_heatmap_inputs(" overview.png ") == {
+        "overview": "overview.png"
+    }
+
+
+@pytest.mark.unit
+def test_normalize_heatmap_inputs_rejects_ambiguous_or_unknown_inputs():
+    with pytest.raises(ValueError, match="cannot be combined"):
+        heatmap_input.normalize_heatmap_inputs(
+            "overview.png", {"upper": "upper.png"}
+        )
+    with pytest.raises(ValueError, match="upper and lower"):
+        heatmap_input.normalize_heatmap_inputs(heatmap_inputs={"left": "left.png"})
+
+
+@pytest.mark.unit
 def test_public_https_accepts_proxy_fake_ip_after_public_doh_verification(monkeypatch):
     monkeypatch.setattr(
         heatmap_input.socket,
