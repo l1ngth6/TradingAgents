@@ -27,6 +27,9 @@ _ENV_OVERRIDES = {
     "TRADINGAGENTS_X_SEARCH_MODEL":              "x_search_model",
     "TRADINGAGENTS_X_SEARCH_THINKING_LEVEL":     "x_search_thinking_level",
     "TRADINGAGENTS_X_SEARCH_TIMEOUT":            "x_search_timeout",
+    "TRADINGAGENTS_X_SEARCH_RETRY_ENABLED":      "x_search_retry_enabled",
+    "TRADINGAGENTS_X_SEARCH_MAX_RETRIES":        "x_search_max_retries",
+    "TRADINGAGENTS_X_SEARCH_RETRY_INTERVAL":     "x_search_retry_interval",
     "TRADINGAGENTS_X_SEARCH_MAX_OUTPUT_TOKENS":  "x_search_max_output_tokens",
     # Provider-specific reasoning/thinking knobs (None = each provider's own
     # default). Settable here for non-interactive runs; the CLI also offers an
@@ -130,6 +133,11 @@ DEFAULT_CONFIG = _apply_env_overrides({
     "x_search_model": "grok-4.6",
     "x_search_thinking_level": "medium",
     "x_search_timeout": 60,
+    # Optional fixed-interval retries for transient X Search failures. The
+    # retry count excludes the initial request, matching common SDK semantics.
+    "x_search_retry_enabled": False,
+    "x_search_max_retries": 2,
+    "x_search_retry_interval": 2.0,
     # Native xAI only: includes visible output and reasoning tokens. Generic
     # compatible gateways receive the common Responses subset without this
     # optional field because some reject it instead of ignoring it.

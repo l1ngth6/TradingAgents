@@ -18,6 +18,7 @@ import http.client
 import json
 import logging
 import os
+import time
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
@@ -27,6 +28,7 @@ logger = logging.getLogger(__name__)
 
 _RESPONSES_API = "https://api.x.ai/v1/responses"
 _SUPPORTED_PROVIDERS = frozenset({"xai", "openai_compatible"})
+_RETRYABLE_HTTP_STATUSES = frozenset({408, 409, 425, 429})
 _SEARCH_INSTRUCTIONS = (
     "You are a bounded X Search worker for financial sentiment analysis. "
     "Use X Search results as evidence, respect the requested date range, "
@@ -148,6 +150,47 @@ def _response_text(payload: object) -> str:
     return result
 
 
+def _is_retryable_http(status: int) -> bool:
+    """Return whether an HTTP failure is likely transient."""
+    return status in _RETRYABLE_HTTP_STATUSES or 500 <= status <= 599
+
+
+def _retry_settings(config: dict) -> tuple[int, float]:
+    """Resolve enabled retry count and fixed delay, rejecting invalid values."""
+    if not config.get("x_search_retry_enabled", False):
+        return 0, 0.0
+
+    max_retries = int(config.get("x_search_max_retries", 2))
+    retry_interval = float(config.get("x_search_retry_interval", 2.0))
+    if max_retries < 0:
+        raise ValueError("x_search_max_retries must be >= 0")
+    if retry_interval < 0:
+        raise ValueError("x_search_retry_interval must be >= 0")
+    return max_retries, retry_interval
+
+
+def _wait_for_retry(
+    provider: str,
+    ticker: str,
+    reason: str,
+    retry_number: int,
+    max_retries: int,
+    retry_interval: float,
+) -> None:
+    """Log and apply the configured fixed delay before another request."""
+    logger.warning(
+        "X Search via %s failed for %s (%s); retrying in %.1fs "
+        "(retry %s/%s)",
+        provider,
+        ticker,
+        reason,
+        retry_interval,
+        retry_number,
+        max_retries,
+    )
+    time.sleep(retry_interval)
+
+
 def fetch_x_sentiment(
     ticker: str,
     start_date: str,
@@ -174,6 +217,7 @@ def fetch_x_sentiment(
     model = str(config.get("x_search_model") or "grok-4.6").strip()
     thinking_level = str(config.get("x_search_thinking_level") or "medium").strip()
     request_timeout = timeout if timeout is not None else float(config.get("x_search_timeout", 60))
+    max_retries, retry_interval = _retry_settings(config)
     prompt = _search_prompt(ticker, start_date, end_date)
     search_tool = {"type": "x_search"}
     body = {
@@ -208,36 +252,70 @@ def fetch_x_sentiment(
         method="POST",
     )
 
-    try:
-        with urlopen(req, timeout=request_timeout) as resp:
-            payload = json.loads(resp.read())
-    except HTTPError as exc:
-        error_body = exc.read(4096).decode("utf-8", errors="replace").strip()
-        request_id = exc.headers.get("X-Request-Id") if exc.headers else None
-        logger.warning(
-            "X Search via %s failed for %s: HTTP %s %s "
-            "(request_id=%s, body=%r)",
-            provider,
-            ticker,
-            exc.code,
-            exc.reason,
-            request_id or "unknown",
-            error_body or "<empty>",
-        )
-        return f"<x_search unavailable: HTTP {exc.code}>"
-    except (
-        OSError,
-        http.client.HTTPException,
-        json.JSONDecodeError,
-        UnicodeDecodeError,
-    ) as exc:
-        logger.warning("X Search via %s failed for %s: %s", provider, ticker, exc)
-        return f"<x_search unavailable: {type(exc).__name__}>"
+    for attempt in range(max_retries + 1):
+        can_retry = attempt < max_retries
+        try:
+            with urlopen(req, timeout=request_timeout) as resp:
+                payload = json.loads(resp.read())
+        except HTTPError as exc:
+            error_body = exc.read(4096).decode("utf-8", errors="replace").strip()
+            request_id = exc.headers.get("X-Request-Id") if exc.headers else None
+            if can_retry and _is_retryable_http(exc.code):
+                _wait_for_retry(
+                    provider,
+                    ticker,
+                    f"HTTP {exc.code}",
+                    attempt + 1,
+                    max_retries,
+                    retry_interval,
+                )
+                continue
+            logger.warning(
+                "X Search via %s failed for %s: HTTP %s %s "
+                "(request_id=%s, body=%r)",
+                provider,
+                ticker,
+                exc.code,
+                exc.reason,
+                request_id or "unknown",
+                error_body or "<empty>",
+            )
+            return f"<x_search unavailable: HTTP {exc.code}>"
+        except (
+            OSError,
+            http.client.HTTPException,
+            json.JSONDecodeError,
+            UnicodeDecodeError,
+        ) as exc:
+            if can_retry:
+                _wait_for_retry(
+                    provider,
+                    ticker,
+                    type(exc).__name__,
+                    attempt + 1,
+                    max_retries,
+                    retry_interval,
+                )
+                continue
+            logger.warning("X Search via %s failed for %s: %s", provider, ticker, exc)
+            return f"<x_search unavailable: {type(exc).__name__}>"
 
-    text = _response_text(payload)
-    if not text:
+        text = _response_text(payload)
+        if text:
+            return text
+        if can_retry:
+            _wait_for_retry(
+                provider,
+                ticker,
+                "empty response",
+                attempt + 1,
+                max_retries,
+                retry_interval,
+            )
+            continue
         logger.warning(
             "X Search via %s returned no usable text for %s", provider, ticker
         )
         return "<x_search unavailable: empty response>"
-    return text
+
+    raise AssertionError("X Search retry loop exhausted unexpectedly")

@@ -117,6 +117,9 @@ def test_x_search_env_config(monkeypatch):
         TRADINGAGENTS_X_SEARCH_MODEL="grok-test",
         TRADINGAGENTS_X_SEARCH_THINKING_LEVEL="low",
         TRADINGAGENTS_X_SEARCH_TIMEOUT="45",
+        TRADINGAGENTS_X_SEARCH_RETRY_ENABLED="true",
+        TRADINGAGENTS_X_SEARCH_MAX_RETRIES="4",
+        TRADINGAGENTS_X_SEARCH_RETRY_INTERVAL="1.5",
         TRADINGAGENTS_X_SEARCH_MAX_OUTPUT_TOKENS="9000",
     )
     assert dc.DEFAULT_CONFIG["x_search_enabled"] is True
@@ -125,6 +128,9 @@ def test_x_search_env_config(monkeypatch):
     assert dc.DEFAULT_CONFIG["x_search_model"] == "grok-test"
     assert dc.DEFAULT_CONFIG["x_search_thinking_level"] == "low"
     assert dc.DEFAULT_CONFIG["x_search_timeout"] == 45
+    assert dc.DEFAULT_CONFIG["x_search_retry_enabled"] is True
+    assert dc.DEFAULT_CONFIG["x_search_max_retries"] == 4
+    assert dc.DEFAULT_CONFIG["x_search_retry_interval"] == 1.5
     assert dc.DEFAULT_CONFIG["x_search_max_output_tokens"] == 9000
 
 
@@ -136,6 +142,9 @@ def test_x_search_disabled_by_default(monkeypatch):
     assert dc.DEFAULT_CONFIG["x_search_model"] == "grok-4.6"
     assert dc.DEFAULT_CONFIG["x_search_thinking_level"] == "medium"
     assert dc.DEFAULT_CONFIG["x_search_timeout"] == 60
+    assert dc.DEFAULT_CONFIG["x_search_retry_enabled"] is False
+    assert dc.DEFAULT_CONFIG["x_search_max_retries"] == 2
+    assert dc.DEFAULT_CONFIG["x_search_retry_interval"] == 2.0
     assert dc.DEFAULT_CONFIG["x_search_max_output_tokens"] == 8000
 
 

@@ -248,3 +248,34 @@ def test_http_error_preserves_status_and_logs_gateway_details(monkeypatch, caplo
     assert result == "<x_search unavailable: HTTP 502>"
     assert "request-123" in caplog.text
     assert "upstream unavailable" in caplog.text
+
+
+@pytest.mark.unit
+def test_transient_http_error_retries_when_enabled(monkeypatch):
+    monkeypatch.setenv("XAI_API_KEY", "secret-test-key")
+    set_config({
+        "x_search_enabled": True,
+        "x_search_provider": "xai",
+        "x_search_base_url": None,
+        "x_search_retry_enabled": True,
+        "x_search_max_retries": 2,
+        "x_search_retry_interval": 1.5,
+    })
+    error = HTTPError(
+        "https://api.x.ai/v1/responses",
+        503,
+        "Service Unavailable",
+        {},
+        BytesIO(b'{"error":{"message":"try again"}}'),
+    )
+
+    with patch.object(
+        x_search,
+        "urlopen",
+        side_effect=[error, _Response({"output_text": "Recovered X evidence."})],
+    ) as mocked, patch.object(x_search.time, "sleep") as slept:
+        result = x_search.fetch_x_sentiment("NVDA", "2026-01-08", "2026-01-15")
+
+    assert result == "Recovered X evidence."
+    assert mocked.call_count == 2
+    slept.assert_called_once_with(1.5)
